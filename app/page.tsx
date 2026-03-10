@@ -233,6 +233,14 @@ export default function Home() {
 
   const activeChar = activeChat ? CHAT_CHARACTERS[activeChat] : null;
   const activeMsgs = activeChat ? (allMessages[activeChat] || []) : [];
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 640);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   // ── LOGIN ──────────────────────────────────────────────────────────────────
   if (!player) {
@@ -272,10 +280,10 @@ export default function Home() {
 
   // ── MAIN APP ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#c8cad0,#d4d6dc,#c0c2c8)", fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: isMobile ? "stretch" : "center", justifyContent: "center", background: "linear-gradient(135deg,#c8cad0,#d4d6dc,#c0c2c8)", fontFamily: "'Segoe UI',system-ui,sans-serif", padding: isMobile ? "0" : "8px" }}>
       {showAddContact && <AddContactModal existing={contacts} onAdd={addContact} onCancel={() => setShowAddContact(false)} />}
 
-      <div style={{ width: 820, height: 560, borderRadius: 14, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 28px 72px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)" }}>
+      <div style={{ width: isMobile ? "100vw" : 820, height: isMobile ? "100vh" : 560, borderRadius: isMobile ? 0 : 14, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: isMobile ? "none" : "0 28px 72px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)" }}>
 
         {/* ── TOP BAR ── */}
         <div style={{ height: 44, background: "#222428", borderBottom: "1px solid #2e3034", display: "flex", alignItems: "center", padding: "0 14px", flexShrink: 0 }}>
@@ -306,7 +314,7 @@ export default function Home() {
         <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
           {/* ── SIDEBAR ── */}
-          <div style={{ width: 210, background: "#26282c", display: "flex", flexDirection: "column", overflow: "hidden", borderRight: "1px solid #2e3034" }}>
+          <div style={{ width: 210, background: "#26282c", display: isMobile && activeChat ? "none" : "flex", flexDirection: "column", overflow: "hidden", borderRight: "1px solid #2e3034" }}>
             <button onClick={() => setShowAddContact(true)}
               style={{ margin: "8px 8px 4px", padding: "9px 12px", borderRadius: 10, background: "#323438", border: "1px dashed #46484e", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}
               onMouseEnter={e => (e.currentTarget.style.background = "#3a3c42")}
@@ -423,6 +431,9 @@ export default function Home() {
             {activeChat && activeChar && (
               <>
                 <div style={{ height: 44, background: "#d4d5da", borderBottom: "1px solid #c4c5cc", display: "flex", alignItems: "center", padding: "0 18px", flexShrink: 0, gap: 10 }}>
+                  {isMobile && (
+                    <button onClick={() => setActiveChat(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, padding: "4px 8px", marginRight: "4px", color: "#1a1c28" }}>←</button>
+                  )}
                   <div style={{ width: 28, height: 28, borderRadius: "50%", overflow: "hidden" }}>
                     <Avatar src={activeChar.avatar} name={activeChar.name} size={28} color={activeChar.color} />
                   </div>
@@ -433,7 +444,7 @@ export default function Home() {
                   )}
                 </div>
 
-                <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column" }}>
+                <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "12px 10px" : "16px 18px", display: "flex", flexDirection: "column" }}>
                   {activeMsgs.length === 0 && (
                     <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
                       <span style={{ background: "rgba(0,0,0,0.07)", color: "#7a7c8a", fontSize: 11, padding: "3px 14px", borderRadius: 20 }}>
@@ -466,7 +477,7 @@ export default function Home() {
                             </div>
                           ) : <div style={{ width: 30, flexShrink: 0 }} />}
                           <div style={{
-                            maxWidth: "56%", padding: "8px 12px", fontSize: 13, lineHeight: 1.5,
+                            maxWidth: isMobile ? "80%" : "56%", padding: "8px 12px", fontSize: 13, lineHeight: 1.5,
                             color: isUser ? "#ffffff" : "#1a1c28",
                             background: isUser ? "#1e2035" : "#ffffff",
                             borderRadius: isUser ? "13px 13px 3px 13px" : "3px 13px 13px 13px",
@@ -497,10 +508,10 @@ export default function Home() {
                   <div ref={messagesEndRef} />
                 </div>
 
-                <div style={{ background: "#d0d1d8", borderTop: "1px solid #c4c5cc", padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                  <div style={{ flex: 1, background: "#f0f0f4", borderRadius: 20, padding: "7px 14px", display: "flex", alignItems: "center", border: "1px solid #c0c2cc" }}>
+                <div style={{ background: "#d0d1d8", borderTop: "1px solid #c4c5cc", padding: isMobile ? "8px 10px" : "10px 14px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <div style={{ flex: 1, background: "#f0f0f4", borderRadius: 20, padding: isMobile ? "6px 10px" : "7px 14px", display: "flex", alignItems: "center", border: "1px solid #c0c2cc" }}>
                     <input
-                      style={{ flex: 1, background: "none", border: "none", outline: "none", fontSize: 13, color: "#1a1c28", fontFamily: "inherit" }}
+                      style={{ flex: 1, background: "none", border: "none", outline: "none", fontSize: isMobile ? 12 : 13, color: "#1a1c28", fontFamily: "inherit" }}
                       value={input}
                       onChange={e => setInput(e.target.value)}
                       onKeyDown={e => e.key === "Enter" && sendMessage()}
@@ -509,8 +520,8 @@ export default function Home() {
                     />
                   </div>
                   <button onClick={sendMessage} disabled={loading || !input.trim()}
-                    style={{ width: 34, height: 34, borderRadius: "50%", background: input.trim() ? activeChar.color : "#b0b2be", border: "none", cursor: input.trim() ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s", flexShrink: 0 }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                    style={{ width: 32, height: 32, borderRadius: "50%", background: input.trim() ? activeChar.color : "#b0b2be", border: "none", cursor: input.trim() ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s", flexShrink: 0 }}>
+                    <svg width={isMobile ? 11 : 13} height={isMobile ? 11 : 13} viewBox="0 0 24 24" fill="none">
                       <path d="M22 2L11 13" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
                       <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
