@@ -36,13 +36,7 @@ const ALL_CHARACTERS = [
 
 const CHAT_CHARACTERS: Record<string, { name: string; element: string; color: string; avatar: string; title: string }> = {
   aemeath:    { name: "Aemeath",    element: "Fusion",   color: "#e8702a", avatar: "/avatars/aemeath.png",    title: "Digital Ghost of Startorch" },
-  waveline:   { name: "Waveline",   element: "Spectro",  color: "#6ab0f5", avatar: "/avatars/waveline.png",   title: "Spectro Resonator" },
   phrolova:   { name: "Phrolova",   element: "Havoc",    color: "#9d6fdf", avatar: "/avatars/phrolova.png",   title: "Former Overseer" },
-  fleurdelys: { name: "Fleurdelys", element: "Aero",     color: "#3db88a", avatar: "/avatars/fleurdelys.png", title: "Blessed Maiden" },
-  jiyan:      { name: "Jiyan",      element: "Aero",     color: "#5bb8d4", avatar: "/avatars/jiyan.png",      title: "Wing Commander" },
-  calcharo:   { name: "Calcharo",   element: "Electro",  color: "#8b7fd4", avatar: "/avatars/calcharo.png",   title: "Former Warden" },
-  carlotta:   { name: "Carlotta",   element: "Glacio",   color: "#82bfef", avatar: "/avatars/carlotta.png",   title: "Head of House Falcate" },
-  camellya:   { name: "Camellya",   element: "Havoc",    color: "#d4689a", avatar: "/avatars/camellya.png",   title: "Bloombearer" },
 };
 
 type Message = { role: string; content: string; time?: string };
