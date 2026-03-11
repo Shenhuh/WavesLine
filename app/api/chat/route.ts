@@ -1,6 +1,6 @@
 // app/api/chat/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { buildSystemPrompt } from "@/app/characters";
+import { buildSystemPrompt } from "@/app/characters/characters";
 import fs from "fs";
 import path from "path";
 
