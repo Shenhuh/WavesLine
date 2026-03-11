@@ -5,21 +5,25 @@ import { buildSystemPrompt } from "@/app/characters";
 import fs from "fs";
 import path from "path";
 
-// Primary: DeepSeek direct API
-const deepseekClient = new OpenAI({
-  baseURL: "https://api.deepseek.com/v1",
-  apiKey: process.env.DEEPSEEK_API_KEY!,
-});
+// Check for API keys
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const GIPHY_API_KEY = process.env.GIPHY_API_KEY;
 
-// Fallback: OpenRouter free tier
-const openrouterClient = new OpenAI({
+// Only initialize clients if API keys exist
+const deepseekClient = DEEPSEEK_API_KEY ? new OpenAI({
+  baseURL: "https://api.deepseek.com/v1",
+  apiKey: DEEPSEEK_API_KEY,
+  dangerouslyAllowBrowser: false, // Ensure this is only used server-side
+}) : null;
+
+const openrouterClient = OPENROUTER_API_KEY ? new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY!,
-});
+  apiKey: OPENROUTER_API_KEY,
+  dangerouslyAllowBrowser: false,
+}) : null;
 
 // ── GIPHY ─────────────────────────────────────────────────────────────────
-const GIPHY_API_KEY = process.env.GIPHY_API_KEY!;
-
 async function fetchGiphyGif(searchTerm: string): Promise<string | null> {
   if (!GIPHY_API_KEY) {
     console.log("[giphy] No API key found");
@@ -108,21 +112,41 @@ const PARAMS = {
 };
 
 async function callDeepSeek(messages: ChatMessage[], systemPrompt: string): Promise<string> {
-  const response = await deepseekClient.chat.completions.create({
-    model: "deepseek-chat",
-    messages: [{ role: "system" as const, content: systemPrompt }, ...(messages as any)],
-    ...PARAMS,
-  });
-  return response.choices?.[0]?.message?.content?.trim() ?? "";
+  if (!deepseekClient) {
+    console.log("[chat] DeepSeek client not initialized - missing API key");
+    return "";
+  }
+  
+  try {
+    const response = await deepseekClient.chat.completions.create({
+      model: "deepseek-chat",
+      messages: [{ role: "system" as const, content: systemPrompt }, ...(messages as any)],
+      ...PARAMS,
+    });
+    return response.choices?.[0]?.message?.content?.trim() ?? "";
+  } catch (error: any) {
+    console.log("[chat] DeepSeek error:", error.message);
+    return "";
+  }
 }
 
 async function callOpenRouter(model: string, messages: ChatMessage[], systemPrompt: string): Promise<string> {
-  const response = await openrouterClient.chat.completions.create({
-    model,
-    messages: [{ role: "system" as const, content: systemPrompt }, ...(messages as any)],
-    ...PARAMS,
-  });
-  return response.choices?.[0]?.message?.content?.trim() ?? "";
+  if (!openrouterClient) {
+    console.log("[chat] OpenRouter client not initialized - missing API key");
+    return "";
+  }
+  
+  try {
+    const response = await openrouterClient.chat.completions.create({
+      model,
+      messages: [{ role: "system" as const, content: systemPrompt }, ...(messages as any)],
+      ...PARAMS,
+    });
+    return response.choices?.[0]?.message?.content?.trim() ?? "";
+  } catch (error: any) {
+    console.log("[chat] OpenRouter error:", error.message);
+    return "";
+  }
 }
 
 // ── PARSE AI OUTPUT ───────────────────────────────────────────────────────
@@ -178,24 +202,8 @@ export async function POST(req: NextRequest) {
     const playerKey: string = body.playerKey ?? "rover";
     const availableStickers = getAvailableStickers();
     
-    // Enhance system prompt with clearer media instructions
+    // Build system prompt
     let systemPrompt = buildSystemPrompt(character, playerName, playerKey, availableStickers);
-    
-    // Add explicit media formatting instructions
-    systemPrompt += `
-
-[CRITICAL MEDIA FORMATTING RULES - YOU MUST FOLLOW THESE]:
-- To send a GIF: Add [GIF:search term] at the END of your message
-  Example: "That reminds me of something beautiful. [GIF:falling cherry blossoms]"
-  Example for Phrolova: "Rain always makes me think of Ostina. [GIF:gentle rain]"
-  
-- To send a sticker: Add [STICKER:name] at the END of your message
-  Example: "I understand. [STICKER:sad]"
-  Example for Phrolova: "Your frequency is... complicated. [STICKER:listen]"
-
-- ALWAYS include your text response first, THEN the media tag
-- Valid sticker names: ${availableStickers.join(", ")}
-- For GIFs, use descriptive search terms like: "gentle rain", "falling leaves", "starry night", "candle flicker"`;
 
     const rawMessages: { role: string; content: string; imageUrl?: string; stickerName?: string; gifUrl?: string; gifCaption?: string }[] = body.messages ?? [];
 
@@ -232,19 +240,15 @@ export async function POST(req: NextRequest) {
     const hasImage = rawMessages.some(m => m.imageUrl);
     let rawContent = "";
 
-    // 1. DeepSeek for text (best quality)
-    if (!hasImage) {
-      try {
-        console.log("[chat] trying: deepseek-chat");
-        rawContent = await callDeepSeek(messages, systemPrompt);
-        if (rawContent) console.log("[chat] success: deepseek-chat");
-      } catch (err: any) {
-        console.warn("[chat] deepseek-chat failed:", err.message);
-      }
+    // 1. Try DeepSeek first (if available)
+    if (!hasImage && deepseekClient) {
+      console.log("[chat] trying: deepseek-chat");
+      rawContent = await callDeepSeek(messages, systemPrompt);
+      if (rawContent) console.log("[chat] success: deepseek-chat");
     }
 
-    // 2. Vision models for images
-    if (!rawContent && hasImage) {
+    // 2. Vision models for images (if OpenRouter available)
+    if (!rawContent && hasImage && openrouterClient) {
       for (const vm of [VISION_MODEL, VISION_MODEL_FALLBACK]) {
         try {
           console.log("[chat] trying vision:", vm);
@@ -254,8 +258,8 @@ export async function POST(req: NextRequest) {
           console.warn("[chat] vision failed:", vm, err.message);
         }
       }
-      // Vision failed — fall back to DeepSeek text-only
-      if (!rawContent) {
+      // Vision failed — fall back to text-only if possible
+      if (!rawContent && deepseekClient) {
         const textOnly: TextMessage[] = rawMessages
           .filter(m => ["user", "assistant"].includes(m.role))
           .map(m => ({
@@ -266,8 +270,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. OpenRouter fallbacks
-    if (!rawContent) {
+    // 3. OpenRouter fallbacks for text (if DeepSeek failed and OpenRouter available)
+    if (!rawContent && openrouterClient) {
       for (const model of OPENROUTER_FALLBACKS) {
         try {
           console.log("[chat] fallback:", model);
@@ -280,11 +284,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // If still no content, return error
     if (!rawContent) {
+      const errorMsg = !deepseekClient && !openrouterClient 
+        ? "No API keys configured. Please set DEEPSEEK_API_KEY or OPENROUTER_API_KEY."
+        : "All channels are busy right now. Try again in a moment.";
+      
       return NextResponse.json({
         role: "assistant",
-        messages: [{ content: "all channels are busy right now. try again in a moment.", gifUrl: null, stickerName: null }],
-        content: "all channels are busy right now. try again in a moment.",
+        messages: [{ content: errorMsg, gifUrl: null, stickerName: null }],
+        content: errorMsg,
       });
     }
 
@@ -294,7 +303,7 @@ export async function POST(req: NextRequest) {
     let parsed = parseAIResponse(rawContent);
     console.log("[chat] Parsed messages:", parsed);
 
-    // Phrolova: strip quotes and clean up text
+    // Phrolova: clean up text
     if (character === "phrolova") {
       parsed = parsed.map(p => ({
         ...p,
@@ -320,11 +329,8 @@ export async function POST(req: NextRequest) {
         }
       }
       
-      // Don't add extra text if we have media
-      const finalText = p.text || "";
-      
       return { 
-        content: finalText, 
+        content: p.text || "", 
         gifUrl, 
         stickerName 
       };
@@ -336,7 +342,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       role: "assistant",
       messages: messagesOut,
-      content: messagesOut[0]?.content ?? "...",
+      content: messagesOut[0]?.content ?? "",
       gifUrl: messagesOut[0]?.gifUrl ?? null,
       stickerName: messagesOut[0]?.stickerName ?? null,
     });
@@ -345,8 +351,8 @@ export async function POST(req: NextRequest) {
     console.error("[chat] fatal:", error.message);
     return NextResponse.json({ 
       role: "assistant", 
-      messages: [{ content: "something broke. try again.", gifUrl: null, stickerName: null }], 
-      content: "something broke. try again." 
+      messages: [{ content: "Something broke. Try again.", gifUrl: null, stickerName: null }], 
+      content: "Something broke. Try again." 
     });
   }
 }
