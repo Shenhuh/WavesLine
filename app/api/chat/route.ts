@@ -1,17 +1,13 @@
-// app/api/chat/route.ts
-import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
 import { buildSystemPrompt } from "@/app/characters";
 import fs from "fs";
 import path from "path";
 
-const client = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY!,
-});
+// OpenRouter client setup
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 // ── GIPHY ─────────────────────────────────────────────────────────────────
-const GIPHY_API_KEY = process.env.GIPHY_API_KEY!;
+const GIPHY_API_KEY = process.env.GIPHY_API_KEY;
 
 async function fetchGiphyGif(searchTerm: string): Promise<string | null> {
   if (!GIPHY_API_KEY || GIPHY_API_KEY === "YOUR_GIPHY_API_KEY_HERE") return null;
@@ -23,7 +19,6 @@ async function fetchGiphyGif(searchTerm: string): Promise<string | null> {
     const results = data.data;
     if (!results?.length) return null;
     const pick = results[Math.floor(Math.random() * results.length)];
-    // Use downsized_medium — always a proper .gif, smaller than original
     return pick.images?.downsized_medium?.url ?? pick.images?.downsized?.url ?? pick.images?.original?.url ?? null;
   } catch {
     return null;
@@ -35,25 +30,24 @@ function getAvailableStickers(): string[] {
   try {
     const baseDir = path.join(process.cwd(), "public", "stickers");
     if (!fs.existsSync(baseDir)) return [];
-    const results: string[] = [];
-    function scan(dir: string, prefix: string) {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (entry.isDirectory()) {
-          scan(path.join(dir, entry.name), prefix + entry.name + "/");
-        } else if (/\.(png|gif|webp|jpg|jpeg)$/i.test(entry.name)) {
-          const nameOnly = entry.name.replace(/\.(png|gif|webp|jpg|jpeg)$/i, "");
-          results.push(prefix + nameOnly);
-        }
-      }
-    }
-    scan(baseDir, "");
-    return results;
-  } catch { return []; }
+    
+    const files = fs.readdirSync(baseDir);
+    return files
+      .filter(file => /\.(png|gif|webp|jpg|jpeg)$/i.test(file))
+      .map(file => file.replace(/\.(png|gif|webp|jpg|jpeg)$/i, ""));
+  } catch {
+    return [];
+  }
 }
 
 // ── TYPES ─────────────────────────────────────────────────────────────────
 type ChatRole = "user" | "assistant" | "system";
-type TextMessage = { role: ChatRole; content: string };
+
+type TextMessage = {
+  role: ChatRole;
+  content: string;
+};
+
 type VisionMessage = {
   role: "user";
   content: Array<
@@ -61,12 +55,13 @@ type VisionMessage = {
     | { type: "image_url"; image_url: { url: string } }
   >;
 };
+
 type ChatMessage = TextMessage | VisionMessage;
 
 // ── MODELS ────────────────────────────────────────────────────────────────
 const VISION_MODEL = "meta-llama/llama-3.2-11b-vision-instruct:free";
 const TEXT_MODELS = [
-  "openrouter/free",
+    "openrouter/free",
   "meta-llama/llama-3.1-8b-instruct:free",
   "meta-llama/llama-3.3-70b-instruct:free",
   "google/gemma-3-27b-it:free",
@@ -74,6 +69,17 @@ const TEXT_MODELS = [
   "deepseek/deepseek-r1-0528:free",
   "qwen/qwen3-8b:free",
   "openrouter/auto",
+  "nvidia/llama-3.1-nemotron-70b-instruct:free",
+  "deepseek/deepseek-r1-distill-llama-70b:free",
+  "meta-llama/llama-3.1-70b-instruct:free",
+  "mistralai/mistral-7b-instruct:free",
+  "qwen/qwen-2.5-7b-instruct:free",
+  "meta-llama/llama-3-8b-instruct:free",
+  "google/gemini-2.0-flash-exp:free",
+  "google/gemini-2.5-flash-preview:free",
+  "microsoft/phi-3-medium-128k-instruct:free",
+  "xiaomi/mimo-v2-flash:free",
+  "arcee-ai/trinity-large-preview:free",
 ];
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -83,18 +89,36 @@ async function callModel(
   messages: ChatMessage[],
   systemPrompt: string
 ): Promise<string> {
-  const response = await client.chat.completions.create({
-    model,
-    messages: [
-      { role: "system" as const, content: systemPrompt },
-      ...(messages as any),
-    ],
-    temperature: 1.0,
-    presence_penalty: 0.6,
-    frequency_penalty: 0.4,
-    max_tokens: 180,
-  });
-  return response.choices?.[0]?.message?.content?.trim() ?? "";
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...messages,
+        ],
+        temperature: 1.0,
+        presence_penalty: 0.6,
+        frequency_penalty: 0.4,
+        max_tokens: 180,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content?.trim() ?? "";
+  } catch (error) {
+    console.error(`Error calling model ${model}:`, error);
+    throw error;
+  }
 }
 
 // ── PARSE AI OUTPUT ───────────────────────────────────────────────────────
@@ -125,6 +149,15 @@ function parseAIResponse(raw: string): {
 // ── MAIN HANDLER ──────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
+    // Check API key
+    if (!OPENROUTER_API_KEY) {
+      console.error("OPENROUTER_API_KEY is not set");
+      return NextResponse.json({
+        role: "assistant",
+        content: "API configuration error. Please check server settings.",
+      });
+    }
+
     const body = await req.json();
 
     const character: string = body.character ?? "aemeath";
@@ -136,37 +169,77 @@ export async function POST(req: NextRequest) {
     const rawMessages: { role: string; content: string; imageUrl?: string; stickerName?: string; gifUrl?: string; gifCaption?: string }[] =
       body.messages ?? [];
 
+    // Process messages
     const messages: ChatMessage[] = rawMessages
       .filter((m) => ["user", "assistant"].includes(m.role))
       .map((m) => {
+        // Handle messages WITH images (vision)
         if (m.imageUrl && m.role === "user") {
+          const content: VisionMessage['content'] = [];
+          
+          if (m.content) {
+            content.push({ type: "text", text: m.content });
+          }
+          
+          content.push({ 
+            type: "image_url", 
+            image_url: { url: m.imageUrl } 
+          });
+          
           return {
-            role: "user" as const,
-            content: [
-              ...(m.content ? [{ type: "text" as const, text: m.content }] : []),
-              { type: "image_url" as const, image_url: { url: m.imageUrl } },
-            ],
+            role: "user",
+            content,
           } as VisionMessage;
         }
-        // Build text content — inject sticker/gif descriptions so AI can react
-        let text = m.content.replace(/\[(GIF|STICKER):[^\]]+\]/gi, "").trim();
-        if (!text && m.role === "user") {
-          if (m.stickerName) text = `[${playerName} sent a sticker: ${m.stickerName}]`;
-          else if (m.gifUrl) text = m.gifCaption ? `[${playerName} sent a GIF: ${m.gifCaption}]` : `[${playerName} sent a GIF]`;
-        } else if (m.role === "user") {
-          if (m.stickerName) text += ` [also sent a sticker: ${m.stickerName}]`;
-          else if (m.gifUrl) text += m.gifCaption ? ` [also sent a GIF: ${m.gifCaption}]` : ` [also sent a GIF]`;
+        
+        // Handle messages WITHOUT images
+        let finalContent = "";
+        
+        if (m.role === "user") {
+          // Case 1: User sent a sticker
+          if (m.stickerName) {
+            const stickerDescription = m.stickerName
+              .replace(/[-_]/g, ' ')
+              .replace(/\b\w/g, l => l.toUpperCase());
+            
+            finalContent = m.content 
+              ? `${m.content} [sent a ${stickerDescription} sticker]`
+              : `[sent a ${stickerDescription} sticker]`;
+          }
+          // Case 2: User sent a GIF
+          else if (m.gifUrl) {
+            const caption = m.gifCaption ? `with caption: "${m.gifCaption}"` : "";
+            finalContent = m.content
+              ? `${m.content} [sent GIF ${caption}]`.trim()
+              : `[sent GIF ${caption}]`.trim();
+          }
+          // Case 3: Regular text message
+          else if (m.content) {
+            finalContent = m.content;
+          }
+          // Case 4: Empty message
+          else {
+            return null;
+          }
+        } else {
+          // Assistant messages
+          finalContent = m.content || "";
         }
+        
+        if (!finalContent) return null;
+        
         return {
           role: m.role as ChatRole,
-          content: text || "[sent something]",
-        };
-      });
+          content: finalContent,
+        } as TextMessage;
+      })
+      .filter((m): m is ChatMessage => m !== null);
 
     const hasImage = rawMessages.some((m) => m.imageUrl);
     const modelsToTry = hasImage ? [VISION_MODEL, ...TEXT_MODELS] : TEXT_MODELS;
 
     let rawContent = "";
+    let lastError: Error | null = null;
 
     for (const model of modelsToTry) {
       try {
@@ -178,27 +251,33 @@ export async function POST(req: NextRequest) {
         }
         console.warn("[chat] empty from", model);
       } catch (err: any) {
+        lastError = err;
         const status = err?.status ?? 0;
         console.warn(`[chat] ${model} failed (${status}):`, err.message);
 
-        // Rate limited — wait briefly then try next
         if (status === 429) {
           await sleep(800);
           continue;
         }
 
-        // Vision model failed with image — retry text-only
+        // If vision model fails with image, try text models with image described
         if (model === VISION_MODEL && hasImage) {
-          const textOnly: TextMessage[] = rawMessages
+          const textOnlyMessages: TextMessage[] = rawMessages
             .filter((m) => ["user", "assistant"].includes(m.role))
-            .map((m) => ({
-              role: m.role as ChatRole,
-              content: m.imageUrl
-                ? [m.content, "[sent an image]"].filter(Boolean).join(" ")
-                : m.content,
-            }));
+            .map((m) => {
+              let content = m.content || "";
+              if (m.imageUrl) {
+                content = content ? `${content} [sent an image]` : "[sent an image]";
+              }
+              return {
+                role: m.role as ChatRole,
+                content,
+              };
+            })
+            .filter(m => m.content);
+
           try {
-            rawContent = await callModel(TEXT_MODELS[0], textOnly, systemPrompt);
+            rawContent = await callModel(TEXT_MODELS[0], textOnlyMessages, systemPrompt);
             if (rawContent) break;
           } catch {}
         }
@@ -207,6 +286,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!rawContent) {
+      console.error("All models failed:", lastError);
       return NextResponse.json({
         role: "assistant",
         content: "...all channels are busy right now. try again in a moment.",
@@ -215,20 +295,19 @@ export async function POST(req: NextRequest) {
 
     let { text, gifQuery, stickerName } = parseAIResponse(rawContent);
 
-    // For Phrolova: strip leading/trailing quotes and ellipsis patterns
+    // For Phrolova: strip formatting
     if (character === "phrolova") {
       text = text
-        .replace(/^"+|"+$/g, "")        // remove wrapping quotes
-        .replace(/^\.\.\.\s*/g, "") // remove leading ...
-        .replace(/\s*\.\.\.$/g, "") // remove trailing ...
-        .replace(/\.\.\./g, "")      // remove any remaining ...
+        .replace(/^"+|"+$/g, "")
+        .replace(/^\.\.\.\s*/g, "")
+        .replace(/\s*\.\.\.$/g, "")
+        .replace(/\.\.\./g, "")
         .trim();
     }
 
-    // If AI returned only a media tag and no text, that's fine — but if truly empty, use fallback
     const finalText = text || (stickerName || gifQuery ? "" : "...");
 
-    // Fetch GIF — failure here should never crash the whole response
+    // Fetch GIF if needed
     let gifUrl: string | null = null;
     if (gifQuery) {
       gifUrl = await fetchGiphyGif(gifQuery);
