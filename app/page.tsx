@@ -234,11 +234,22 @@ export default function Home() {
         }),
       });
       const reply = await res.json();
-      const aiMsg: Message = { role: "assistant", content: reply.content, time: getTime(), gifUrl: reply.gifUrl ?? undefined, stickerName: reply.stickerName ?? undefined };
-      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), aiMsg] }));
+      // Support multi-message replies
+      const replyMessages: { content: string; gifUrl?: string; stickerName?: string }[] =
+        reply.messages ?? [{ content: reply.content, gifUrl: reply.gifUrl, stickerName: reply.stickerName }];
+
+      for (let i = 0; i < replyMessages.length; i++) {
+        const m = replyMessages[i];
+        // Small delay between bubbles to feel natural
+        if (i > 0) await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
+        const aiMsg: Message = { role: "assistant", content: m.content ?? "", time: getTime(), gifUrl: m.gifUrl ?? undefined, stickerName: m.stickerName ?? undefined };
+        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), aiMsg] }));
+      }
+
       if (activeChatRef.current !== chatKey) {
         setUnread(prev => ({ ...prev, [chatKey]: true }));
-        const preview = reply.content ? (reply.content.length > 28 ? reply.content.slice(0, 28) + "…" : reply.content) : "New message";
+        const lastContent = replyMessages[replyMessages.length - 1]?.content;
+        const preview = lastContent ? (lastContent.length > 28 ? lastContent.slice(0, 28) + "…" : lastContent) : "New message";
         setToast({ key: chatKey, name: CHAT_CHARACTERS[chatKey]?.name || chatKey, preview });
         if (toastTimer.current) clearTimeout(toastTimer.current);
         toastTimer.current = setTimeout(() => setToast(null), 4000);
