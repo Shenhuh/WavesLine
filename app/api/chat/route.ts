@@ -5,50 +5,35 @@ import { buildSystemPrompt } from "@/app/characters";
 import fs from "fs";
 import path from "path";
 
-// Check for API keys
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const GIPHY_API_KEY = process.env.GIPHY_API_KEY;
-
-// Only initialize clients if API keys exist
-const deepseekClient = DEEPSEEK_API_KEY ? new OpenAI({
+// Primary: DeepSeek direct API
+const deepseekClient = new OpenAI({
   baseURL: "https://api.deepseek.com/v1",
-  apiKey: DEEPSEEK_API_KEY,
-  dangerouslyAllowBrowser: false, // Ensure this is only used server-side
-}) : null;
+  apiKey: process.env.DEEPSEEK_API_KEY!,
+});
 
-const openrouterClient = OPENROUTER_API_KEY ? new OpenAI({
+// Fallback: OpenRouter free tier
+const openrouterClient = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
-  apiKey: OPENROUTER_API_KEY,
-  dangerouslyAllowBrowser: false,
-}) : null;
+  apiKey: process.env.OPENROUTER_API_KEY!,
+});
 
 // ── GIPHY ─────────────────────────────────────────────────────────────────
+const GIPHY_API_KEY = process.env.GIPHY_API_KEY!;
+
 async function fetchGiphyGif(searchTerm: string): Promise<string | null> {
-  if (!GIPHY_API_KEY) {
-    console.log("[giphy] No API key found");
-    return null;
-  }
+  if (!GIPHY_API_KEY) return null;
   try {
-    console.log("[giphy] Searching for:", searchTerm);
     const url = `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(searchTerm)}&limit=8&rating=pg-13`;
     const res = await fetch(url);
-    if (!res.ok) {
-      console.log("[giphy] API response not OK:", res.status);
-      return null;
-    }
+    if (!res.ok) return null;
     const data = await res.json();
     const results = data.data;
-    if (!results?.length) {
-      console.log("[giphy] No results found for:", searchTerm);
-      return null;
-    }
+    if (!results?.length) return null;
     const pick = results[Math.floor(Math.random() * results.length)];
     const gifUrl = pick.images?.downsized_medium?.url ?? pick.images?.downsized?.url ?? pick.images?.original?.url ?? null;
-    console.log("[giphy] Found GIF:", gifUrl);
+    console.log("[giphy] returning url for:", searchTerm, gifUrl);
     return gifUrl;
-  } catch (error) {
-    console.log("[giphy] Error:", error);
+  } catch {
     return null;
   }
 }
@@ -70,12 +55,8 @@ function getAvailableStickers(): string[] {
       }
     }
     scan(baseDir, "");
-    console.log("[stickers] Available:", results);
     return results;
-  } catch { 
-    console.log("[stickers] Error scanning");
-    return []; 
-  }
+  } catch { return []; }
 }
 
 // ── TYPES ─────────────────────────────────────────────────────────────────
@@ -112,41 +93,21 @@ const PARAMS = {
 };
 
 async function callDeepSeek(messages: ChatMessage[], systemPrompt: string): Promise<string> {
-  if (!deepseekClient) {
-    console.log("[chat] DeepSeek client not initialized - missing API key");
-    return "";
-  }
-  
-  try {
-    const response = await deepseekClient.chat.completions.create({
-      model: "deepseek-chat",
-      messages: [{ role: "system" as const, content: systemPrompt }, ...(messages as any)],
-      ...PARAMS,
-    });
-    return response.choices?.[0]?.message?.content?.trim() ?? "";
-  } catch (error: any) {
-    console.log("[chat] DeepSeek error:", error.message);
-    return "";
-  }
+  const response = await deepseekClient.chat.completions.create({
+    model: "deepseek-chat",
+    messages: [{ role: "system" as const, content: systemPrompt }, ...(messages as any)],
+    ...PARAMS,
+  });
+  return response.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
 async function callOpenRouter(model: string, messages: ChatMessage[], systemPrompt: string): Promise<string> {
-  if (!openrouterClient) {
-    console.log("[chat] OpenRouter client not initialized - missing API key");
-    return "";
-  }
-  
-  try {
-    const response = await openrouterClient.chat.completions.create({
-      model,
-      messages: [{ role: "system" as const, content: systemPrompt }, ...(messages as any)],
-      ...PARAMS,
-    });
-    return response.choices?.[0]?.message?.content?.trim() ?? "";
-  } catch (error: any) {
-    console.log("[chat] OpenRouter error:", error.message);
-    return "";
-  }
+  const response = await openrouterClient.chat.completions.create({
+    model,
+    messages: [{ role: "system" as const, content: systemPrompt }, ...(messages as any)],
+    ...PARAMS,
+  });
+  return response.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
 // ── PARSE AI OUTPUT ───────────────────────────────────────────────────────
@@ -157,7 +118,7 @@ function parseSingleMessage(raw: string): ParsedMessage {
   let gifQuery: string | null = null;
   let stickerName: string | null = null;
 
-  // Match [GIF:search term] - case insensitive
+  // Match [GIF:search term] - make it case insensitive and allow spaces
   const gifMatch = text.match(/\[GIF:\s*([^\]]+)\s*\]/i);
   if (gifMatch) { 
     gifQuery = gifMatch[1].trim(); 
@@ -165,12 +126,17 @@ function parseSingleMessage(raw: string): ParsedMessage {
     console.log("[parse] Found GIF query:", gifQuery);
   }
 
-  // Match [STICKER:filename] - case insensitive
+  // Match [STICKER:filename]
   const stickerMatch = text.match(/\[STICKER:\s*([^\]]+)\s*\]/i);
   if (stickerMatch) { 
     stickerName = stickerMatch[1].trim(); 
     text = text.replace(stickerMatch[0], "").trim(); 
     console.log("[parse] Found sticker:", stickerName);
+  }
+
+  // If there's no text but we have media, don't return empty
+  if (!text && (gifQuery || stickerName)) {
+    text = gifQuery ? `[Sends a GIF: ${gifQuery}]` : `[Sends a sticker]`;
   }
 
   return { text, gifQuery, stickerName };
@@ -195,15 +161,36 @@ function parseAIResponse(raw: string): ParsedMessage[] {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    console.log("[chat] Request body:", JSON.stringify(body, null, 2));
 
     const character: string = body.character ?? "aemeath";
     const playerName: string = body.playerName ?? "Rover";
     const playerKey: string = body.playerKey ?? "rover";
     const availableStickers = getAvailableStickers();
     
-    // Build system prompt
+    // Log available stickers for debugging
+    console.log("[chat] Available stickers:", availableStickers);
+    
+    // Enhance system prompt with clearer media instructions
     let systemPrompt = buildSystemPrompt(character, playerName, playerKey, availableStickers);
+    
+    // Add explicit media formatting instructions if not already present
+    if (!systemPrompt.includes("[GIF:")) {
+      systemPrompt += `
+
+[CRITICAL MEDIA FORMATTING RULES - YOU MUST FOLLOW THESE]:
+- To send a GIF: Add [GIF:search term] at the END of your message
+  Example: "That reminds me of something beautiful. [GIF:falling cherry blossoms]"
+  Example for Phrolova: "Rain always makes me think of Ostina. [GIF:gentle rain]"
+  
+- To send a sticker: Add [STICKER:name] at the END of your message
+  Example: "I understand. [STICKER:sad]"
+  Example for Phrolova: "Your frequency is... complicated. [STICKER:listen]"
+
+- ALWAYS include your text response first, THEN the media tag
+- NEVER send just a media tag without text (unless it's a greeting)
+- Valid sticker names: ${availableStickers.join(", ")}
+- For GIFs, use descriptive search terms like: "gentle rain", "falling leaves", "starry night", "candle flicker"`;
+    }
 
     const rawMessages: { role: string; content: string; imageUrl?: string; stickerName?: string; gifUrl?: string; gifCaption?: string }[] = body.messages ?? [];
 
@@ -240,15 +227,19 @@ export async function POST(req: NextRequest) {
     const hasImage = rawMessages.some(m => m.imageUrl);
     let rawContent = "";
 
-    // 1. Try DeepSeek first (if available)
-    if (!hasImage && deepseekClient) {
-      console.log("[chat] trying: deepseek-chat");
-      rawContent = await callDeepSeek(messages, systemPrompt);
-      if (rawContent) console.log("[chat] success: deepseek-chat");
+    // 1. DeepSeek for text (best quality)
+    if (!hasImage) {
+      try {
+        console.log("[chat] trying: deepseek-chat");
+        rawContent = await callDeepSeek(messages, systemPrompt);
+        if (rawContent) console.log("[chat] success: deepseek-chat");
+      } catch (err: any) {
+        console.warn("[chat] deepseek-chat failed:", err.message);
+      }
     }
 
-    // 2. Vision models for images (if OpenRouter available)
-    if (!rawContent && hasImage && openrouterClient) {
+    // 2. Vision models for images
+    if (!rawContent && hasImage) {
       for (const vm of [VISION_MODEL, VISION_MODEL_FALLBACK]) {
         try {
           console.log("[chat] trying vision:", vm);
@@ -258,8 +249,8 @@ export async function POST(req: NextRequest) {
           console.warn("[chat] vision failed:", vm, err.message);
         }
       }
-      // Vision failed — fall back to text-only if possible
-      if (!rawContent && deepseekClient) {
+      // Vision failed — fall back to DeepSeek text-only
+      if (!rawContent) {
         const textOnly: TextMessage[] = rawMessages
           .filter(m => ["user", "assistant"].includes(m.role))
           .map(m => ({
@@ -270,8 +261,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. OpenRouter fallbacks for text (if DeepSeek failed and OpenRouter available)
-    if (!rawContent && openrouterClient) {
+    // 3. OpenRouter fallbacks
+    if (!rawContent) {
       for (const model of OPENROUTER_FALLBACKS) {
         try {
           console.log("[chat] fallback:", model);
@@ -284,16 +275,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If still no content, return error
     if (!rawContent) {
-      const errorMsg = !deepseekClient && !openrouterClient 
-        ? "No API keys configured. Please set DEEPSEEK_API_KEY or OPENROUTER_API_KEY."
-        : "All channels are busy right now. Try again in a moment.";
-      
       return NextResponse.json({
         role: "assistant",
-        messages: [{ content: errorMsg, gifUrl: null, stickerName: null }],
-        content: errorMsg,
+        messages: [{ content: "all channels are busy right now. try again in a moment.", gifUrl: null, stickerName: null }],
+        content: "all channels are busy right now. try again in a moment.",
       });
     }
 
@@ -303,7 +289,7 @@ export async function POST(req: NextRequest) {
     let parsed = parseAIResponse(rawContent);
     console.log("[chat] Parsed messages:", parsed);
 
-    // Phrolova: clean up text
+    // Phrolova: strip quotes and clean up text
     if (character === "phrolova") {
       parsed = parsed.map(p => ({
         ...p,
@@ -315,34 +301,31 @@ export async function POST(req: NextRequest) {
       }));
     }
 
-    // Process each message - fetch GIFs and map stickers
+    // Fetch GIFs for any messages that have gifQuery
     const messagesOut = await Promise.all(parsed.map(async p => {
       let gifUrl: string | null = null;
-      let stickerName: string | null = p.stickerName;
-      
-      // Fetch GIF if query exists
       if (p.gifQuery) {
         console.log("[chat] Fetching GIF for:", p.gifQuery);
         gifUrl = await fetchGiphyGif(p.gifQuery);
-        if (!gifUrl) {
-          console.log("[chat] Failed to fetch GIF for:", p.gifQuery);
-        }
       }
       
+      // If we have a GIF but no text, add a default message
+      const finalText = p.text || (p.stickerName || gifUrl ? "" : "...");
+      
       return { 
-        content: p.text || "", 
+        content: finalText, 
         gifUrl, 
-        stickerName 
+        stickerName: p.stickerName ?? null 
       };
     }));
 
     // Log what we're sending back
-    console.log("[chat] Sending messages:", JSON.stringify(messagesOut, null, 2));
+    console.log("[chat] Sending messages:", messagesOut);
 
     return NextResponse.json({
       role: "assistant",
       messages: messagesOut,
-      content: messagesOut[0]?.content ?? "",
+      content: messagesOut[0]?.content ?? "...",
       gifUrl: messagesOut[0]?.gifUrl ?? null,
       stickerName: messagesOut[0]?.stickerName ?? null,
     });
@@ -351,8 +334,8 @@ export async function POST(req: NextRequest) {
     console.error("[chat] fatal:", error.message);
     return NextResponse.json({ 
       role: "assistant", 
-      messages: [{ content: "Something broke. Try again.", gifUrl: null, stickerName: null }], 
-      content: "Something broke. Try again." 
+      messages: [{ content: "something broke. try again.", gifUrl: null, stickerName: null }], 
+      content: "something broke. try again." 
     });
   }
 }
