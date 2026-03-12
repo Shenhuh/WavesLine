@@ -141,8 +141,17 @@ export async function POST(req: NextRequest) {
     const character: string = body.character ?? "aemeath";
     const playerName: string = body.playerName ?? "Rover";
     const playerKey: string = body.playerKey ?? "rover";
+    const unblockRequest: boolean = body.unblockRequest ?? false;
+    const unblockAccepted: boolean = body.unblockAccepted ?? false;
     const availableStickers = getAvailableStickers();
-    const systemPrompt = buildSystemPrompt(character, playerName, playerKey, availableStickers);
+    let systemPrompt = buildSystemPrompt(character, playerName, playerKey, availableStickers);
+
+    // Inject unblock context
+    if (unblockRequest) {
+      systemPrompt += unblockAccepted
+        ? `\n\n[UNBLOCK REQUEST]: The user sent you an unblock request. You decided to unblock them — reluctantly. Be mean about it. Make it clear this is not forgiveness.`
+        : `\n\n[UNBLOCK REQUEST]: The user sent you an unblock request. You are keeping them blocked. Decline coldly. Do not explain yourself much.`;
+    }
 
     const rawMessages: { role: string; content: string; imageUrl?: string; stickerName?: string; gifUrl?: string; gifCaption?: string }[] = body.messages ?? [];
 

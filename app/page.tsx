@@ -64,7 +64,7 @@ const CHAT_CHARACTERS: Record<string, { name: string; element: string; color: st
   phrolova: { name: "Phrolova", element: "Havoc",  color: "#9d6fdf", avatar: "/avatars/phrolova.png", title: "Former Overseer" },
 };
 
-type Message = { role: string; content: string; time?: string; imageUrl?: string; gifUrl?: string; stickerName?: string; gifCaption?: string };
+type Message = { role: string; content: string; time?: string; imageUrl?: string; gifUrl?: string; stickerName?: string; gifCaption?: string; isBlock?: boolean };
 function getTime() { return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
 
 function WavesLineLogo({ size = 20 }: { size?: number }) {
@@ -154,6 +154,8 @@ export default function Home() {
   const [selectedKey, setSelectedKey] = useState(ALL_CHARACTERS[0].key);
   const [contacts, setContacts] = useState<string[]>([]);
   const [activeChat, setActiveChat] = useState<string | null>(null);
+  const [blockedChats, setBlockedChats] = useState<Record<string, boolean>>({});
+  const [unblockLoading, setUnblockLoading] = useState(false);
   const [allMessages, setAllMessages] = useState<Record<string, Message[]>>({});
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -245,6 +247,11 @@ export default function Home() {
         await new Promise(r => setTimeout(r, 1200));
         const updatedMsgs = [...messages, { role: "assistant" as const, content: "[just finished singing her song for you]" }];
         await triggerAIReply(chatKey, updatedMsgs);
+
+        // Block the user after singing
+        await new Promise(r => setTimeout(r, 800));
+        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "[Phrolova has blocked you]", time: getTime(), isBlock: true }] }));
+        setBlockedChats(prev => ({ ...prev, [chatKey]: true }));
         return;
       }
     } catch {
@@ -252,6 +259,46 @@ export default function Home() {
     }
     setTypingFor(null); setLoading(false);
     setTimeout(() => inputRef.current?.focus(), 50);
+  }
+
+  async function requestUnblock() {
+    if (!activeChat || unblockLoading) return;
+    const chatKey = activeChat;
+    if (!player) return;
+
+    setUnblockLoading(true);
+    const roll = Math.random();
+    const accepted = roll < 0.20; // 20% chance
+
+    const messages = allMessages[chatKey] || [];
+    const context = [...messages, { role: "user" as const, content: "[sent an unblock request]" }];
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: context.map(({ role, content }) => ({ role, content })),
+          character: chatKey,
+          playerName: player.name,
+          playerKey: player.key,
+          unblockRequest: true,
+          unblockAccepted: accepted,
+        }),
+      });
+      const reply = await res.json();
+      const replyMsgs = reply.messages ?? [{ content: reply.content }];
+      for (let i = 0; i < replyMsgs.length; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, 600));
+        const m = replyMsgs[i];
+        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: m.content ?? "", time: getTime() }] }));
+      }
+      if (accepted) {
+        setBlockedChats(prev => ({ ...prev, [chatKey]: false }));
+      }
+    } catch {
+      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "...", time: getTime() }] }));
+    }
+    setUnblockLoading(false);
   }
 
   function addContact(key: string) {
@@ -627,21 +674,33 @@ export default function Home() {
                     </svg>
                   </button>
 
-                  {/* Text input — light like in-game */}
-                  <input
-                    ref={inputRef}
-                    style={{ flex: 1, background: "#eaebec", border: "1px solid rgba(0,0,0,0.1)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#1e2030", outline: "none", fontFamily: "inherit" }}
-                    value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()}
-                    placeholder={`Message ${activeChar.name}...`} disabled={loading} />
+                  {/* Text input — blocked or normal */}
+                  {blockedChats[activeChat!] ? (
+                    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ fontSize: 12, color: "#999", fontStyle: "italic" }}>You have been blocked.</span>
+                      <button onClick={requestUnblock} disabled={unblockLoading}
+                        style={{ padding: "6px 14px", borderRadius: 8, background: unblockLoading ? "rgba(0,0,0,0.08)" : "#1e2028", border: "none", color: unblockLoading ? "#999" : "white", fontSize: 12, cursor: unblockLoading ? "default" : "pointer", flexShrink: 0 }}>
+                        {unblockLoading ? "Requesting..." : "Request Unblock"}
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        ref={inputRef}
+                        style={{ flex: 1, background: "#eaebec", border: "1px solid rgba(0,0,0,0.1)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#1e2030", outline: "none", fontFamily: "inherit" }}
+                        value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()}
+                        placeholder={`Message ${activeChar.name}...`} disabled={loading} />
 
-                  {/* Send button — matches player bubble color */}
-                  <button onClick={sendMessage} disabled={loading || (!input.trim() && !attachedImage)}
-                    style={{ width: 32, height: 32, borderRadius: 8, background: (input.trim() || attachedImage) ? "#1e2028" : "rgba(0,0,0,0.1)", border: "none", cursor: (input.trim() || attachedImage) ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                      <path d="M22 2L11 13" stroke={(input.trim() || attachedImage) ? "white" : "#999"} strokeWidth="2.5" strokeLinecap="round"/>
-                      <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke={(input.trim() || attachedImage) ? "white" : "#999"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </button>
+                      {/* Send button */}
+                      <button onClick={sendMessage} disabled={loading || (!input.trim() && !attachedImage)}
+                        style={{ width: 32, height: 32, borderRadius: 8, background: (input.trim() || attachedImage) ? "#1e2028" : "rgba(0,0,0,0.1)", border: "none", cursor: (input.trim() || attachedImage) ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                          <path d="M22 2L11 13" stroke={(input.trim() || attachedImage) ? "white" : "#999"} strokeWidth="2.5" strokeLinecap="round"/>
+                          <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke={(input.trim() || attachedImage) ? "white" : "#999"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </>)}
