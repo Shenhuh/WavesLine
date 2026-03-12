@@ -1,5 +1,31 @@
 "use client";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
+
+// ── PHROLOVA'S SONG — prebuilt, zero tokens ───────────────────────────────
+const PHROLOVA_SONG = [
+  "Hi, it's been a while",
+  "Since the last time that I saw your smile",
+  "What a perfect fit",
+  "The last piece have fallen into place",
+  "I've been craving to touch you",
+  "Like moonlight stroking your face",
+  "My dear reverie, come hold me near",
+  "Come dance with me in a rosy haze of yesterday",
+  "Reverie, don't drift away",
+  "Please keep me here in your warm embrace",
+  "I'll trade anything for you, for one more day",
+  "I'll perfume your dreams",
+  "With scent of flowers and summer breeze",
+  "Does it matter if it's true?",
+  "It feels a lot more real",
+  "When we whistle through the field",
+  "When I sing this song for you",
+  "My dear reverie, come hold me near",
+  "Come dance with me in a rosy haze of yesterday",
+  "Reverie, don't let me go",
+  "If sanity means I have to hit the road",
+  "Then I don't wanna know anywhere the wind blows",
+];
 
 const ALL_CHARACTERS = [
   { key: "rover_m", name: "Male Rover",   avatar: "/avatars/rover_m.png" },
@@ -44,8 +70,8 @@ function getTime() { return new Date().toLocaleTimeString([], { hour: "2-digit",
 function WavesLineLogo({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
-      <circle cx="16" cy="16" r="15" fill="#1a1c22" stroke="#c8a830" strokeWidth="1.5"/>
-      <path d="M8 19 C10 13, 14 11, 16 16 C18 21, 22 19, 24 13" stroke="#c8a830" strokeWidth="2" strokeLinecap="round" fill="none"/>
+      <circle cx="16" cy="16" r="15" fill="#2a2c35" stroke="#c8a830" strokeWidth="1.5"/>
+      <path d="M8 19 C10 13,14 11,16 16 C18 21,22 19,24 13" stroke="#c8a830" strokeWidth="2" strokeLinecap="round" fill="none"/>
       <circle cx="16" cy="16" r="2.5" fill="#c8a830"/>
     </svg>
   );
@@ -53,52 +79,39 @@ function WavesLineLogo({ size = 20 }: { size?: number }) {
 
 function Avatar({ src, name, size = 36, color = "#888" }: { src: string; name: string; size?: number; color?: string }) {
   const [err, setErr] = useState(false);
-  if (!err) return (
-    <img src={src} alt={name} onError={() => setErr(true)}
-      style={{ width: size, height: size, borderRadius: "50%", flexShrink: 0, objectFit: "cover", display: "block" }} />
-  );
-  return (
-    <div style={{ width: size, height: size, borderRadius: "50%", flexShrink: 0, background: color,
-      display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: size * 0.38, userSelect: "none" }}>
-      {name[0]}
-    </div>
-  );
+  if (!err) return <img src={src} alt={name} onError={() => setErr(true)} style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", display: "block", flexShrink: 0 }} />;
+  return <div style={{ width: size, height: size, borderRadius: "50%", flexShrink: 0, background: color, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: size * 0.38, userSelect: "none" }}>{name[0]}</div>;
 }
 
-function CharacterPicker({ value, onChange }: { value: string; onChange: (key: string) => void }) {
+function StickerImg({ name }: { name: string }) {
+  const exts = ["png", "gif", "webp", "jpg"];
+  const [idx, setIdx] = useState(0);
+  if (idx >= exts.length) return null;
+  return <img src={`/stickers/${name}.${exts[idx]}`} alt="sticker" onError={() => setIdx(i => i + 1)} style={{ width: 90, height: 90, objectFit: "contain" }} />;
+}
+
+function CharacterPicker({ value, onChange }: { value: string; onChange: (k: string) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const selected = ALL_CHARACTERS.find(c => c.key === value) ?? ALL_CHARACTERS[0];
-
+  const sel = ALL_CHARACTERS.find(c => c.key === value) ?? ALL_CHARACTERS[0];
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h);
   }, []);
-
   return (
     <div ref={ref} style={{ position: "relative", width: "100%" }}>
-      <button onClick={() => setOpen(o => !o)}
-        style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 10, background: "#343638", border: `1px solid ${open ? "#c8a830" : "#3a3c42"}`, cursor: "pointer", textAlign: "left" }}>
-        <div style={{ width: 32, height: 32, borderRadius: "50%", overflow: "hidden", flexShrink: 0, border: "1.5px solid #c8a83060" }}>
-          <Avatar src={selected.avatar} name={selected.name} size={32} color="#c8a830" />
-        </div>
-        <span style={{ flex: 1, color: "#e8e8ee", fontSize: 13, fontWeight: 600 }}>{selected.name}</span>
-        <span style={{ color: "#888a96", fontSize: 10 }}>{open ? "▲" : "▼"}</span>
+      <button onClick={() => setOpen(o => !o)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "rgba(255,255,255,0.08)", border: `1px solid ${open ? "#c8a830" : "rgba(255,255,255,0.15)"}`, cursor: "pointer" }}>
+        <Avatar src={sel.avatar} name={sel.name} size={28} color="#c8a830" />
+        <span style={{ flex: 1, color: "#e8e8ee", fontSize: 13, fontWeight: 600, textAlign: "left" }}>{sel.name}</span>
+        <span style={{ color: "#888", fontSize: 9 }}>{open ? "▲" : "▼"}</span>
       </button>
       {open && (
-        <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 100, background: "#2a2c30", border: "1px solid #3a3c42", borderRadius: 10, maxHeight: 220, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 200, background: "#1e2028", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, maxHeight: 200, overflowY: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
           {ALL_CHARACTERS.map(c => (
             <button key={c.key} onClick={() => { onChange(c.key); setOpen(false); }}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: c.key === value ? "#3a3c42" : "none", border: "none", cursor: "pointer", textAlign: "left", borderLeft: c.key === value ? "3px solid #c8a830" : "3px solid transparent" }}
-              onMouseEnter={e => { if (c.key !== value) e.currentTarget.style.background = "#323438"; }}
-              onMouseLeave={e => { if (c.key !== value) e.currentTarget.style.background = "none"; }}>
-              <div style={{ width: 28, height: 28, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
-                <Avatar src={c.avatar} name={c.name} size={28} color="#c8a830" />
-              </div>
-              <span style={{ color: c.key === value ? "#e8e8ee" : "#b0b2be", fontSize: 12, fontWeight: c.key === value ? 700 : 400 }}>{c.name}</span>
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "7px 12px", background: c.key === value ? "rgba(200,168,48,0.12)" : "none", border: "none", cursor: "pointer", borderLeft: c.key === value ? "2px solid #c8a830" : "2px solid transparent" }}>
+              <Avatar src={c.avatar} name={c.name} size={24} color="#c8a830" />
+              <span style={{ color: c.key === value ? "#c8a830" : "#b0b2be", fontSize: 12 }}>{c.name}</span>
             </button>
           ))}
         </div>
@@ -107,48 +120,30 @@ function CharacterPicker({ value, onChange }: { value: string; onChange: (key: s
   );
 }
 
-function StickerImg({ name }: { name: string }) {
-  const exts = ["png", "gif", "webp", "jpg"];
-  const [extIdx, setExtIdx] = useState(0);
-  if (extIdx >= exts.length) return null;
-  return (
-    <img
-      src={`/stickers/${name}.${exts[extIdx]}`}
-      alt="sticker"
-      onError={() => setExtIdx(i => i + 1)}
-      style={{ width: 90, height: 90, objectFit: "contain" }}
-    />
-  );
-}
-
 function AddContactModal({ existing, onAdd, onCancel }: { existing: string[]; onAdd: (k: string) => void; onCancel: () => void }) {
   const available = Object.keys(CHAT_CHARACTERS).filter(k => !existing.includes(k));
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)" }}>
-      <div style={{ background: "#2a2c30", border: "1px solid #3a3c42", borderRadius: 14, padding: 18, width: 260, display: "flex", flexDirection: "column", gap: 10 }}>
-        <p style={{ color: "#e8e8ee", fontSize: 13, fontWeight: 600, margin: 0 }}>Add Contact</p>
-        <p style={{ color: "#666870", fontSize: 11, margin: 0 }}>Choose a Resonator to chat with</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 260, overflowY: "auto" }}>
-          {available.length === 0 && <p style={{ color: "#666870", fontSize: 11, textAlign: "center", padding: "12px 0" }}>All contacts added!</p>}
+    <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}>
+      <div style={{ background: "#2a2c38", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 14, padding: 20, width: 280, boxShadow: "0 20px 60px rgba(0,0,0,0.8)", display: "flex", flexDirection: "column", gap: 12 }}>
+        <p style={{ color: "#e8e8ee", fontSize: 14, fontWeight: 700, margin: 0 }}>Add Contact</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {available.length === 0 && <p style={{ color: "#555", fontSize: 12, textAlign: "center", padding: "12px 0" }}>All contacts added!</p>}
           {available.map(key => {
-            const c = CHAT_CHARACTERS[key];
+            const ch = CHAT_CHARACTERS[key];
             return (
-              <button key={key} onClick={() => onAdd(key)}
-                style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 10, background: "#343638", border: "none", cursor: "pointer", textAlign: "left" }}
-                onMouseEnter={e => (e.currentTarget.style.background = "#3e4044")}
-                onMouseLeave={e => (e.currentTarget.style.background = "#343638")}>
-                <div style={{ width: 34, height: 34, borderRadius: "50%", overflow: "hidden", background: "#1e2024", flexShrink: 0 }}>
-                  <Avatar src={c.avatar} name={c.name} size={34} color={c.color} />
-                </div>
+              <button key={key} onClick={() => onAdd(key)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", cursor: "pointer" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(200,168,48,0.1)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}>
+                <Avatar src={ch.avatar} name={ch.name} size={38} color={ch.color} />
                 <div>
-                  <p style={{ color: "#e8e8ee", fontSize: 12, fontWeight: 600, margin: 0 }}>{c.name}</p>
-                  <p style={{ color: c.color, fontSize: 11, margin: 0 }}>{c.element}</p>
+                  <p style={{ color: "#e8e8ee", fontSize: 13, fontWeight: 600, margin: 0 }}>{ch.name}</p>
+                  <p style={{ color: ch.color, fontSize: 11, margin: 0 }}>{ch.element}</p>
                 </div>
               </button>
             );
           })}
         </div>
-        <button onClick={onCancel} style={{ background: "#343638", border: "none", borderRadius: 10, padding: "7px 0", color: "#888a96", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+        <button onClick={onCancel} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 0", color: "#888", fontSize: 12, cursor: "pointer" }}>Cancel</button>
       </div>
     </div>
   );
@@ -156,7 +151,7 @@ function AddContactModal({ existing, onAdd, onCancel }: { existing: string[]; on
 
 export default function Home() {
   const [player, setPlayer] = useState<typeof ALL_CHARACTERS[0] | null>(null);
-  const [selectedKey, setSelectedKey] = useState(ALL_CHARACTERS[0].key); // ← always valid
+  const [selectedKey, setSelectedKey] = useState(ALL_CHARACTERS[0].key);
   const [contacts, setContacts] = useState<string[]>([]);
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [allMessages, setAllMessages] = useState<Record<string, Message[]>>({});
@@ -165,516 +160,502 @@ export default function Home() {
   const [showAddContact, setShowAddContact] = useState(false);
   const [unread, setUnread] = useState<Record<string, boolean>>({});
   const [typingFor, setTypingFor] = useState<string | null>(null);
-  const [toast, setToast] = useState<{key: string; name: string; preview: string} | null>(null);
+  const [toast, setToast] = useState<{ key: string; name: string; preview: string } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [attachedImage, setAttachedImage] = useState<{url: string; name: string} | null>(null);
+  const [attachedImage, setAttachedImage] = useState<{ url: string; name: string } | null>(null);
   const [showMediaPicker, setShowMediaPicker] = useState(false);
-  const [mediaTab, setMediaTab] = useState<"stickers"|"gif">("stickers");
+  const [mediaTab, setMediaTab] = useState<"stickers" | "gif">("stickers");
   const [gifSearch, setGifSearch] = useState("");
   const [gifCaption, setGifCaption] = useState("");
-  const [gifResults, setGifResults] = useState<{url:string; preview:string}[]>([]);
+  const [gifResults, setGifResults] = useState<{ url: string; preview: string }[]>([]);
   const [gifLoading, setGifLoading] = useState(false);
   const [stickers, setStickers] = useState<string[]>([]);
   const mediaPickerRef = useRef<HTMLDivElement>(null);
   const activeChatRef = useRef<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   activeChatRef.current = activeChat;
   const [isMobile, setIsMobile] = useState(false);
-  const [mobileView, setMobileView] = useState<"sidebar"|"chat">("sidebar");
+  const [mobileView, setMobileView] = useState<"sidebar" | "chat">("sidebar");
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 600);
-    check();
-    window.addEventListener("resize", check);
+    check(); window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
   }, []);
-
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [allMessages, loading, activeChat]);
-
+  useEffect(() => { fetch("/api/stickers").then(r => r.json()).then(d => setStickers(d.files ?? [])).catch(() => {}); }, []);
   useEffect(() => {
-    fetch("/api/stickers").then(r => r.json()).then(d => setStickers(d.files ?? [])).catch(() => setStickers([]));
+    const h = (e: MouseEvent) => { if (mediaPickerRef.current && !mediaPickerRef.current.contains(e.target as Node)) setShowMediaPicker(false); };
+    document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (mediaPickerRef.current && !mediaPickerRef.current.contains(e.target as Node)) setShowMediaPicker(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
-
-  const gifDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  async function searchGiphy(query: string) {
-    if (!query.trim()) { setGifResults([]); return; }
-    setGifLoading(true);
-    try {
-      const res = await fetch(`/api/giphy?q=${encodeURIComponent(query)}`);
-      const data = await res.json();
-      setGifResults(data.results ?? []);
-    } catch { setGifResults([]); }
-    setGifLoading(false);
-  }
+  const gifDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   function handleGifInput(val: string) {
     setGifSearch(val);
-    if (gifDebounceRef.current) clearTimeout(gifDebounceRef.current);
-    gifDebounceRef.current = setTimeout(() => searchGiphy(val), 500);
+    if (gifDebounce.current) clearTimeout(gifDebounce.current);
+    gifDebounce.current = setTimeout(async () => {
+      if (!val.trim()) { setGifResults([]); return; }
+      setGifLoading(true);
+      try { const r = await fetch(`/api/giphy?q=${encodeURIComponent(val)}`); const d = await r.json(); setGifResults(d.results ?? []); } catch { setGifResults([]); }
+      setGifLoading(false);
+    }, 500);
   }
 
   async function triggerAIReply(chatKey: string, messages: Message[]) {
     if (!player) return;
-    setTypingFor(chatKey);
-    setLoading(true);
+    setTypingFor(chatKey); setLoading(true);
     try {
       const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: messages.map(({ role, content, imageUrl, stickerName, gifUrl, gifCaption }) => ({ role, content, imageUrl, stickerName, gifUrl, gifCaption })),
-          character: chatKey, playerName: player.name, playerKey: player.key,
-        }),
+        body: JSON.stringify({ messages: messages.map(({ role, content, imageUrl, stickerName, gifUrl, gifCaption }) => ({ role, content, imageUrl, stickerName, gifUrl, gifCaption })), character: chatKey, playerName: player.name, playerKey: player.key }),
       });
       const reply = await res.json();
-      // Support multi-message replies
-      const replyMessages: { content: string; gifUrl?: string; stickerName?: string }[] =
+      const replyMsgs: { content: string; gifUrl?: string; stickerName?: string }[] =
         reply.messages ?? [{ content: reply.content, gifUrl: reply.gifUrl, stickerName: reply.stickerName }];
-
-      for (let i = 0; i < replyMessages.length; i++) {
-        const m = replyMessages[i];
-        // Small delay between bubbles to feel natural
+      for (let i = 0; i < replyMsgs.length; i++) {
         if (i > 0) await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
-        const aiMsg: Message = { role: "assistant", content: m.content ?? "", time: getTime(), gifUrl: m.gifUrl ?? undefined, stickerName: m.stickerName ?? undefined };
-        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), aiMsg] }));
+        const m = replyMsgs[i];
+        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: m.content ?? "", time: getTime(), gifUrl: m.gifUrl ?? undefined, stickerName: m.stickerName ?? undefined }] }));
       }
-
       if (activeChatRef.current !== chatKey) {
         setUnread(prev => ({ ...prev, [chatKey]: true }));
-        const lastContent = replyMessages[replyMessages.length - 1]?.content;
-        const preview = lastContent ? (lastContent.length > 28 ? lastContent.slice(0, 28) + "…" : lastContent) : "New message";
-        setToast({ key: chatKey, name: CHAT_CHARACTERS[chatKey]?.name || chatKey, preview });
+        const last = replyMsgs[replyMsgs.length - 1]?.content ?? "";
+        setToast({ key: chatKey, name: CHAT_CHARACTERS[chatKey]?.name || chatKey, preview: last.length > 30 ? last.slice(0, 30) + "…" : last || "New message" });
         if (toastTimer.current) clearTimeout(toastTimer.current);
         toastTimer.current = setTimeout(() => setToast(null), 4000);
       }
+
+      // Auto-play prebuilt song if singSong flag is true
+      if (reply.singSong) {
+        // Small intro pause then "Fine."
+        await new Promise(r => setTimeout(r, 600));
+        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "Fine.", time: getTime() }] }));
+        await new Promise(r => setTimeout(r, 800));
+        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "*begins to play*", time: getTime() }] }));
+
+        // Play each lyric line with natural delay
+        for (const line of PHROLOVA_SONG) {
+          await new Promise(r => setTimeout(r, 900 + Math.random() * 500));
+          setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: line, time: getTime() }] }));
+        }
+
+        // Outro — one real API call so she can be mean naturally
+        await new Promise(r => setTimeout(r, 1200));
+        const updatedMsgs = [...messages, { role: "assistant" as const, content: "[just finished singing her song for you]" }];
+        await triggerAIReply(chatKey, updatedMsgs);
+        return;
+      }
     } catch {
       setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "signal lost.", time: getTime() }] }));
-      if (activeChatRef.current !== chatKey) setUnread(prev => ({ ...prev, [chatKey]: true }));
     }
-    setTypingFor(null);
-    setLoading(false);
-  }
-
-  function sendSticker(filename: string) {
-    if (!activeChat || !player) return;
-    const chatKey = activeChat;
-    const stickerMsg: Message = { role: "user", content: "", time: getTime(), stickerName: filename };
-    const updated = [...(allMessages[chatKey] || []), stickerMsg];
-    setAllMessages(prev => ({ ...prev, [chatKey]: updated }));
-    setShowMediaPicker(false);
-    triggerAIReply(chatKey, updated);
-  }
-
-  function sendGifFromPicker(gifUrl: string) {
-    if (!activeChat || !player) return;
-    const chatKey = activeChat;
-    const gifMsg: Message = { role: "user", content: "", time: getTime(), gifUrl, gifCaption: gifCaption.trim() || undefined };
-    const updated = [...(allMessages[chatKey] || []), gifMsg];
-    setAllMessages(prev => ({ ...prev, [chatKey]: updated }));
-    setGifCaption("");
-    setShowMediaPicker(false);
-    triggerAIReply(chatKey, updated);
+    setTypingFor(null); setLoading(false);
+    setTimeout(() => inputRef.current?.focus(), 50);
   }
 
   function addContact(key: string) {
-    setContacts(prev => [...prev, key]);
-    setAllMessages(prev => ({ ...prev, [key]: [] }));
-    setActiveChat(key);
-    setUnread(prev => ({ ...prev, [key]: false }));
-    setShowAddContact(false);
+    setContacts(prev => [...prev, key]); setAllMessages(prev => ({ ...prev, [key]: [] }));
+    setActiveChat(key); setUnread(prev => ({ ...prev, [key]: false })); setShowAddContact(false);
     if (isMobile) setMobileView("chat");
   }
-
   function openChat(key: string) {
-    setActiveChat(key);
-    setUnread(prev => ({ ...prev, [key]: false }));
+    setActiveChat(key); setUnread(prev => ({ ...prev, [key]: false }));
     setToast(prev => prev?.key === key ? null : prev);
     if (isMobile) setMobileView("chat");
   }
-
   async function sendMessage() {
     if ((!input.trim() && !attachedImage) || loading || !player || !activeChat) return;
     const chatKey = activeChat;
-    const newMsg: Message = { role: "user", content: input, time: getTime(), ...(attachedImage ? { imageUrl: attachedImage.url } : {}) };
-    const current = [...(allMessages[chatKey] || []), newMsg];
-    setAllMessages(prev => ({ ...prev, [chatKey]: current }));
-    setInput("");
-    setAttachedImage(null);
-    triggerAIReply(chatKey, current);
+    const msg: Message = { role: "user", content: input, time: getTime(), ...(attachedImage ? { imageUrl: attachedImage.url } : {}) };
+    const updated = [...(allMessages[chatKey] || []), msg];
+    setAllMessages(prev => ({ ...prev, [chatKey]: updated })); setInput(""); setAttachedImage(null);
+    setTimeout(() => inputRef.current?.focus(), 100);
+    triggerAIReply(chatKey, updated);
+  }
+  function sendSticker(filename: string) {
+    if (!activeChat || !player) return;
+    const chatKey = activeChat;
+    const msg: Message = { role: "user", content: "", time: getTime(), stickerName: filename };
+    const updated = [...(allMessages[chatKey] || []), msg];
+    setAllMessages(prev => ({ ...prev, [chatKey]: updated })); setShowMediaPicker(false);
+    triggerAIReply(chatKey, updated);
+  }
+  function sendGifFromPicker(gifUrl: string) {
+    if (!activeChat || !player || !gifCaption.trim()) return;
+    const chatKey = activeChat;
+    const msg: Message = { role: "user", content: "", time: getTime(), gifUrl, gifCaption: gifCaption.trim() };
+    const updated = [...(allMessages[chatKey] || []), msg];
+    setAllMessages(prev => ({ ...prev, [chatKey]: updated })); setGifCaption(""); setShowMediaPicker(false);
+    triggerAIReply(chatKey, updated);
   }
 
   const activeChar = activeChat ? CHAT_CHARACTERS[activeChat] : null;
   const activeMsgs = activeChat ? (allMessages[activeChat] || []) : [];
-  const selectedChar = ALL_CHARACTERS.find(c => c.key === selectedKey) ?? ALL_CHARACTERS[0];
+  const selChar = ALL_CHARACTERS.find(c => c.key === selectedKey) ?? ALL_CHARACTERS[0];
 
-  // ── LOGIN ──────────────────────────────────────────────────────────────────
-  if (!player) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "linear-gradient(160deg,#c8cad0,#d4d6dc,#c0c2c8)", fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
-        <div style={{ background: "#2a2c30", border: "1px solid #3a3c42", borderRadius: 16, padding: 32, width: 320, display: "flex", flexDirection: "column", alignItems: "center", gap: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <WavesLineLogo size={28} />
-            <span style={{ color: "#e8e8ee", fontSize: 15, fontWeight: 700, letterSpacing: "0.1em" }}>WavesLine</span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 72, height: 72, borderRadius: "50%", overflow: "hidden", background: "#1e2024", border: "2px solid #c8a83060" }}>
-              <Avatar src={selectedChar.avatar} name={selectedChar.name} size={72} color="#c8a830" />
-            </div>
-            <p style={{ color: "#e8e8ee", fontSize: 14, fontWeight: 600, margin: 0 }}>{selectedChar.name}</p>
-          </div>
-          <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
-            <label style={{ color: "#666870", fontSize: 11, letterSpacing: "0.06em" }}>WHO ARE YOU?</label>
-            <CharacterPicker value={selectedKey} onChange={setSelectedKey} />
-          </div>
-          <button onClick={() => setPlayer(selectedChar)}
-            style={{ width: "100%", padding: "10px 0", borderRadius: 10, background: "#c8a830", border: "none", color: "#1a1a1a", fontSize: 13, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em" }}
-            onMouseEnter={e => (e.currentTarget.style.background = "#d4b840")}
-            onMouseLeave={e => (e.currentTarget.style.background = "#c8a830")}>
-            Open WavesLine →
-          </button>
+  // ── LOGIN ────────────────────────────────────────────────────────────────
+  if (!player) return (
+    <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "#1a1c24", fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
+      <div style={{ background: "#22242e", border: "1px solid rgba(200,168,48,0.2)", borderRadius: 18, padding: 36, width: 300, display: "flex", flexDirection: "column", alignItems: "center", gap: 22, boxShadow: "0 24px 80px rgba(0,0,0,0.7)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}><WavesLineLogo size={28} /><span style={{ color: "#c8a830", fontSize: 15, fontWeight: 800, letterSpacing: "0.12em" }}>WAVESLINE</span></div>
+        <div style={{ width: 72, height: 72, borderRadius: "50%", overflow: "hidden", border: "2px solid rgba(200,168,48,0.35)" }}><Avatar src={selChar.avatar} name={selChar.name} size={72} color="#c8a830" /></div>
+        <div style={{ width: "100%" }}>
+          <p style={{ color: "#555768", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Choose your resonator</p>
+          <CharacterPicker value={selectedKey} onChange={setSelectedKey} />
         </div>
-        <p style={{ marginTop: 16, color: "rgba(255,255,255,0.15)", fontSize: 11 }}>Wuthering Waves · WavesLine</p>
+        <button onClick={() => setPlayer(selChar)}
+          style={{ width: "100%", padding: "11px 0", borderRadius: 10, background: "linear-gradient(135deg,#c8a830,#a88820)", border: "none", color: "#1a1400", fontSize: 13, fontWeight: 800, cursor: "pointer", letterSpacing: "0.06em" }}>
+          OPEN WAVESLINE →
+        </button>
       </div>
-    );
-  }
+    </div>
+  );
 
-  // ── MAIN APP ───────────────────────────────────────────────────────────────
+  // ── COLORS (matching in-game photo exactly) ───────────────────────────────
+  // Top bar:    #1e2028 (very dark)
+  // Sidebar:    #2e3038 (dark grey)
+  // Contact row:#363840 (slightly lighter)
+  // Active row: white/cream + gold left border
+  // Chat area:  #e0e1e3 (very light grey)
+  // Chat header:#e0e1e3 (same, just name)
+  // Input bar:  #d4d6d8 slightly darker footer
+  // Char bubble:#ffffff white rounded
+  // User bubble:#1e2028 very dark rounded
+  // Toast:      #1a1c22 black pill
+
   return (
-    <div style={{ minHeight: "100dvh", display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "center", background: isMobile ? "#dcdde2" : "linear-gradient(135deg,#c8cad0,#d4d6dc,#c0c2c8)", fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
+    <div style={{ minHeight: "100dvh", display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "center", background: "#14151c", fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
       {showAddContact && <AddContactModal existing={contacts} onAdd={addContact} onCancel={() => setShowAddContact(false)} />}
 
-      <div style={{ width: isMobile ? "100vw" : "min(820px, 100vw)", height: isMobile ? "100dvh" : "min(560px, 100vh)", borderRadius: isMobile ? 0 : "clamp(0px, 2vw, 14px)", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: isMobile ? "none" : "0 28px 72px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)" }}>
+      <div style={{
+        width: isMobile ? "100vw" : "min(820px,98vw)",
+        height: isMobile ? "100dvh" : "min(560px,96vh)",
+        borderRadius: isMobile ? 0 : 12,
+        overflow: "hidden", display: "flex", flexDirection: "column",
+        boxShadow: "0 32px 80px rgba(0,0,0,0.9)",
+        border: "1px solid rgba(255,255,255,0.05)",
+      }}>
 
-        {/* TOP BAR */}
-        <div style={{ height: 44, background: "#222428", borderBottom: "1px solid #2e3034", display: "flex", alignItems: "center", padding: "0 14px", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#1a1c20", borderRadius: 20, padding: "4px 12px 4px 6px", border: "1px solid #323438" }}>
-            <WavesLineLogo size={22} />
-            <span style={{ color: "#c8cad8", fontSize: 12, fontWeight: 700, letterSpacing: "0.12em" }}>WavesLine</span>
+        {/* ── TOP BAR: very dark like in-game ── */}
+        <div style={{ height: 40, background: "#1e2028", display: "flex", alignItems: "center", padding: "0 14px", gap: 10, flexShrink: 0, borderBottom: "1px solid rgba(0,0,0,0.3)" }}>
+          {/* Small icon placeholder (the controller icon in-game) */}
+          <div style={{ width: 22, height: 22, borderRadius: 6, background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <WavesLineLogo size={14} />
           </div>
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
-            <button onClick={() => setPlayer(null)} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", opacity: 0.65 }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
-              onMouseLeave={e => (e.currentTarget.style.opacity = "0.65")}>
-              <Avatar src={player.avatar} name={player.name} size={20} color="#c8a830" />
-              <span style={{ color: "#8890a8", fontSize: 11 }}>{player.name}</span>
+          <span style={{ color: "#c8c9d0", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em" }}>WavesLine</span>
+          <div style={{ flex: 1 }} />
+          {/* Player badge */}
+          <button onClick={() => setPlayer(null)}
+            style={{ display: "flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: "3px 10px 3px 5px", cursor: "pointer" }}
+            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}>
+            <div style={{ width: 22, height: 22, borderRadius: "50%", overflow: "hidden" }}><Avatar src={player.avatar} name={player.name} size={22} color="#c8a830" /></div>
+            <span style={{ color: "#9a9cb0", fontSize: 11 }}>{player.name}</span>
+          </button>
+          {/* Window controls */}
+          {[{ icon: "⚙", hov: "#c8c9d0" }, { icon: "!", hov: "#e0a020" }, { icon: "✕", hov: "#e05050" }].map(({ icon, hov }, i) => (
+            <button key={i} onClick={i === 2 ? () => setPlayer(null) : undefined}
+              style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.25)", fontSize: 13, borderRadius: 4 }}
+              onMouseEnter={e => (e.currentTarget.style.color = hov)} onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.25)")}>
+              {icon}
             </button>
-            <div style={{ width: 1, height: 12, background: "#323438" }} />
-            {(["⚙","!","✕"] as const).map((icon, i) => (
-              <button key={i} style={{ background: "none", border: "none", cursor: "pointer", color: "#5a5c68", fontSize: 15, lineHeight: 1, padding: 0 }}
-                onMouseEnter={e => (e.currentTarget.style.color = i === 2 ? "#e05050" : i === 1 ? "#c8a830" : "#c8cad8")}
-                onMouseLeave={e => (e.currentTarget.style.color = "#5a5c68")}
-                onClick={i === 2 ? () => setPlayer(null) : undefined}>
-                {icon}
-              </button>
-            ))}
-          </div>
+          ))}
         </div>
 
-        {/* BODY */}
-        <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative" }}>
+        {/* ── BODY ── */}
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
-          {/* SIDEBAR */}
-          <div style={{ width: isMobile ? "100%" : "clamp(160px, 26vw, 210px)", background: "#26282c", display: isMobile && mobileView === "chat" ? "none" : "flex", flexDirection: "column", overflow: "hidden", borderRight: "1px solid #2e3034" }}>
+          {/* ── SIDEBAR: dark grey like in-game ── */}
+          <div style={{
+            width: isMobile ? "100%" : "clamp(160px,24%,210px)",
+            display: isMobile && mobileView === "chat" ? "none" : "flex",
+            flexDirection: "column",
+            background: "#2e3038",
+            overflow: "hidden",
+          }}>
+            {/* Add Contact button */}
             <button onClick={() => setShowAddContact(true)}
-              style={{ margin: "8px 8px 4px", padding: "9px 12px", borderRadius: 10, background: "#323438", border: "1px dashed #46484e", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}
-              onMouseEnter={e => (e.currentTarget.style.background = "#3a3c42")}
-              onMouseLeave={e => (e.currentTarget.style.background = "#323438")}>
-              <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#1e2024", display: "flex", alignItems: "center", justifyContent: "center", color: "#c8a830", fontSize: 18, flexShrink: 0, border: "1px solid #3a3c42" }}>+</div>
-              <div style={{ width: 1.5, height: 28, background: "#c8a830", opacity: 0.5, flexShrink: 0 }} />
-              <span style={{ color: "#c8a830", fontSize: 12, fontWeight: 500 }}>Add Contact</span>
+              style={{ margin: "8px 8px 4px", padding: "8px 12px", borderRadius: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}>
+              <div style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: "#c8c9d0", fontSize: 20, flexShrink: 0 }}>+</div>
+              <span style={{ color: "#9a9cb0", fontSize: 12 }}>Add Contact</span>
             </button>
 
-            <div style={{ flex: 1, overflowY: "auto", padding: "4px 8px 8px" }}>
+            {/* Contact list */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "2px 8px 8px" }}>
               {contacts.length === 0 && (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "32px 12px", gap: 6, opacity: 0.35 }}>
-                  <span style={{ fontSize: 22 }}>💬</span>
-                  <p style={{ color: "#888a96", fontSize: 11, textAlign: "center", lineHeight: 1.5, margin: 0 }}>No contacts yet.<br/>Add someone to chat!</p>
-                </div>
+                <p style={{ color: "#4a4c58", fontSize: 11, textAlign: "center", padding: "28px 8px", lineHeight: 1.6 }}>No contacts yet.<br />Add someone!</p>
               )}
               {contacts.map(key => {
-                const c = CHAT_CHARACTERS[key];
+                const ch = CHAT_CHARACTERS[key];
                 const isActive = activeChat === key;
                 const isTyping = typingFor === key;
                 const hasUnread = unread[key] === true;
                 const msgs = allMessages[key] || [];
-                const lastMsg = msgs[msgs.length - 1]?.content;
-                const preview = isTyping ? "typing..." : lastMsg ? (lastMsg.length > 22 ? lastMsg.slice(0, 22) + "…" : lastMsg) : c.title;
+                const last = msgs[msgs.length - 1];
+                const preview = isTyping ? "typing..." : last?.content ? (last.content.length > 20 ? last.content.slice(0, 20) + "…" : last.content) : last?.stickerName ? "sent a sticker" : last?.gifUrl ? "sent a GIF" : ch.title;
+
                 return (
-                  <button key={key} onClick={() => openChat(key)}
-                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 0, padding: 0, marginBottom: 5, borderRadius: 10, background: isActive ? "linear-gradient(90deg, #f0ede4, #e8e4d8)" : "#323438", border: "none", cursor: "pointer", textAlign: "left", overflow: "hidden", boxShadow: isActive ? "0 2px 10px rgba(0,0,0,0.3)" : "0 1px 3px rgba(0,0,0,0.2)" }}
-                    onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "#3a3c42"; }}
-                    onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "#323438"; }}>
-                    {isActive && <div style={{ width: 3, alignSelf: "stretch", background: "#c8a830", flexShrink: 0 }} />}
-                    <div style={{ position: "relative", flexShrink: 0, padding: "9px 10px" }}>
-                      <div style={{ width: 36, height: 36, borderRadius: "50%", overflow: "hidden", background: "#1e2024", border: `1.5px solid ${isActive ? "#c8a83040" : "#3a3c42"}` }}>
-                        <Avatar src={c.avatar} name={c.name} size={36} color={c.color} />
+                  <button key={key} onClick={() => openChat(key)} style={{
+                    width: "100%", display: "flex", alignItems: "center", gap: 10,
+                    padding: "8px 10px", marginBottom: 3, borderRadius: 8,
+                    // Active: cream/white with gold left border — exactly like in-game
+                    background: isActive ? "linear-gradient(90deg,#f0ede4,#e8e5da)" : "rgba(255,255,255,0.04)",
+                    border: "none", cursor: "pointer", textAlign: "left",
+                    boxShadow: isActive ? "inset 3px 0 0 #c8a830" : "none",
+                  }}
+                    onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
+                    onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}>
+                    {/* Avatar with unread dot */}
+                    <div style={{ position: "relative", flexShrink: 0 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: "50%", overflow: "hidden" }}>
+                        <Avatar src={ch.avatar} name={ch.name} size={36} color={ch.color} />
                       </div>
                       {(isTyping || hasUnread) && (
-                        <div style={{ position: "absolute", top: 7, right: 7, width: 9, height: 9, borderRadius: "50%", background: isTyping ? "#c8a830" : "#e04040", border: `2px solid ${isActive ? "#e8e4d8" : "#323438"}`, animation: isTyping ? "pulse 1s infinite" : "none" }} />
+                        <div style={{ position: "absolute", top: -1, right: -1, width: 9, height: 9, borderRadius: "50%", background: isTyping ? "#c8a830" : "#e04040", border: "2px solid #2e3038", animation: isTyping ? "pulse 1s infinite" : "none" }} />
                       )}
                     </div>
-                    <div style={{ width: 1.5, height: 28, background: isActive ? "#c8a830" : "#46484e", flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0, padding: "0 10px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <p style={{ color: isActive ? "#1a1c20" : "#c8cad8", fontSize: 12, fontWeight: hasUnread ? 800 : 700, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{c.name}</p>
-                        {hasUnread && !isActive && <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#e04040", flexShrink: 0 }} />}
-                      </div>
-                      <p style={{ color: isTyping ? "#c8a830" : hasUnread ? "#c8cad8" : isActive ? "#6a6860" : "#606268", fontSize: 10, margin: "2px 0 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontStyle: isTyping ? "italic" : "normal", fontWeight: hasUnread ? 600 : 400 }}>
-                        {c.element} · {preview}
-                      </p>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ color: isActive ? "#1e2030" : hasUnread ? "#e0e0ee" : "#b0b2c0", fontSize: 12, fontWeight: hasUnread || isActive ? 700 : 500, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ch.name}</p>
+                      <p style={{ color: isTyping ? "#c8a830" : isActive ? "#6a6858" : "#5a5c6a", fontSize: 10, margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontStyle: isTyping ? "italic" : "normal" }}>{preview}</p>
                     </div>
+                    {hasUnread && !isActive && <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#e04040", flexShrink: 0 }} />}
                   </button>
                 );
               })}
             </div>
 
+            {/* Toast — dark pill exactly like "Good luck!" in-game */}
             {toast && (
               <button onClick={() => { openChat(toast.key); setToast(null); }}
-                style={{ margin: "0 8px 8px", padding: "10px 14px", borderRadius: 10, background: "linear-gradient(90deg, #1a1c20, #252830)", border: "1px solid #3a3c42", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, textAlign: "left", boxShadow: "0 4px 16px rgba(0,0,0,0.4)", animation: "slideUp 0.3s ease" }}>
-                <div style={{ width: 22, height: 22, borderRadius: "50%", border: "1.5px solid #c8a830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <span style={{ color: "#c8a830", fontSize: 11 }}>✓</span>
+                style={{ margin: "0 8px 8px", padding: "8px 12px", borderRadius: 8, background: "#1a1c22", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, flexShrink: 0, textAlign: "left", animation: "slideUp 0.25s ease" }}>
+                <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#c8a830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <span style={{ color: "#1a1400", fontSize: 9, fontWeight: 800 }}>✓</span>
                 </div>
-                <div style={{ width: 1.5, height: 22, background: "#c8a830", flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ color: "#e8e8ee", fontSize: 11, fontWeight: 700, margin: 0 }}>{toast.name}</p>
-                  <p style={{ color: "#888a96", fontSize: 10, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{toast.preview}</p>
+                  <p style={{ color: "#c8a830", fontSize: 11, fontWeight: 700, margin: 0 }}>{toast.name}</p>
+                  <p style={{ color: "#606070", fontSize: 10, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toast.preview}</p>
                 </div>
               </button>
             )}
           </div>
 
-          {/* CHAT PANEL */}
-          <div style={{ flex: 1, display: isMobile && mobileView === "sidebar" ? "none" : "flex", flexDirection: "column", background: "#dcdde2", overflow: "hidden" }}>
+          {/* ── CHAT PANEL: light grey like in-game ── */}
+          <div style={{ flex: 1, display: isMobile && mobileView === "sidebar" ? "none" : "flex", flexDirection: "column", background: "#e0e1e3", overflow: "hidden" }}>
+
             {!activeChat && (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, opacity: 0.4 }}>
-                <WavesLineLogo size={48} />
-                <p style={{ color: "#5a5c68", fontSize: 13, margin: 0 }}>Select a contact to start chatting</p>
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 10, opacity: 0.2 }}>
+                <WavesLineLogo size={44} />
+                <p style={{ color: "#333", fontSize: 12 }}>Select a contact</p>
               </div>
             )}
 
-            {activeChat && activeChar && (
-              <>
-                {/* Chat header */}
-                <div style={{ height: 44, background: "#d4d5da", borderBottom: "1px solid #c4c5cc", display: "flex", alignItems: "center", padding: "0 12px 0 8px", flexShrink: 0, gap: 8 }}>
-                  {isMobile && (
-                    <button onClick={() => setMobileView("sidebar")} style={{ background: "none", border: "none", cursor: "pointer", color: "#5a5c68", fontSize: 20, lineHeight: 1, padding: "0 4px", flexShrink: 0 }}>‹</button>
-                  )}
-                  <div style={{ width: 28, height: 28, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
-                    <Avatar src={activeChar.avatar} name={activeChar.name} size={28} color={activeChar.color} />
-                  </div>
-                  <span style={{ color: "#1a1c28", fontSize: 14, fontWeight: 700 }}>{activeChar.name}</span>
-                  <span style={{ color: activeChar.color, fontSize: 11 }}>· {activeChar.element}</span>
-                  {typingFor === activeChat && <span style={{ color: "#9a9ca8", fontSize: 11, fontStyle: "italic", marginLeft: 4 }}>typing...</span>}
+            {activeChat && activeChar && (<>
+              {/* Chat header — light, just character name like in-game */}
+              <div style={{ height: 44, background: "#e0e1e3", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", padding: isMobile ? "0 10px" : "0 20px", flexShrink: 0 }}>
+                {isMobile && (
+                  <button onClick={() => setMobileView("sidebar")} style={{ background: "none", border: "none", cursor: "pointer", color: "#888", fontSize: 22, padding: "0 6px 0 0" }}>‹</button>
+                )}
+                <span style={{ color: "#1e2030", fontSize: 15, fontWeight: 700 }}>{activeChar.name}</span>
+                {typingFor === activeChat && <span style={{ color: "#888", fontSize: 11, fontStyle: "italic", marginLeft: 10 }}>typing...</span>}
+              </div>
+
+              {/* Messages */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column" }}>
+                {/* You are now friends */}
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+                  <span style={{ background: "rgba(0,0,0,0.06)", color: "#888", fontSize: 11, padding: "3px 14px", borderRadius: 20 }}>
+                    ▲ You are now friends with {activeChar.name}
+                  </span>
                 </div>
 
-                {/* Messages */}
-                <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column" }}>
-                  {activeMsgs.length === 0 && (
-                    <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
-                      <span style={{ background: "rgba(0,0,0,0.07)", color: "#7a7c8a", fontSize: 11, padding: "3px 14px", borderRadius: 20 }}>
-                        ▲ You are now friends with {activeChar.name}
-                      </span>
-                    </div>
-                  )}
-                  {activeMsgs.map((m, i) => {
-                    if (m.role === "assistant" && !m.content && !m.gifUrl && !m.stickerName) return null;
-                    const isUser = m.role === "user";
-                    const name = isUser ? player.name : activeChar.name;
-                    const avatar = isUser ? player.avatar : activeChar.avatar;
-                    const color = isUser ? "#6ab0f5" : activeChar.color;
-                    const prevMsg = activeMsgs[i - 1];
-                    const nextMsg = activeMsgs[i + 1];
-                    const showLabel = !prevMsg || prevMsg.role !== m.role;
-                    const isLastInGroup = !nextMsg || nextMsg.role !== m.role;
-                    return (
-                      <div key={i} style={{ marginBottom: 6 }}>
-                        {showLabel && (
-                          <p style={{ fontSize: 11, color: "#9098b8", fontWeight: 500, margin: "0 0 3px", textAlign: isUser ? "right" : "left", paddingRight: isUser ? 42 : 0, paddingLeft: isUser ? 0 : 44 }}>{name}</p>
-                        )}
-                        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexDirection: isUser ? "row-reverse" : "row" }}>
-                          {isLastInGroup ? (
-                            <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
-                              <Avatar src={avatar} name={name} size={30} color={color} />
-                            </div>
-                          ) : <div style={{ width: 30, flexShrink: 0 }} />}
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: isUser ? "flex-end" : "flex-start", maxWidth: "60%" }}>
-                            {m.gifUrl && (
-                              <div style={{ borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.15)", maxWidth: 220 }}>
-                                {m.gifUrl.includes(".mp4") ? (
-                                  <video src={m.gifUrl} autoPlay loop muted playsInline style={{ display: "block", width: "100%", maxHeight: 180, objectFit: "cover" }} />
-                                ) : (
-                                  <img src={m.gifUrl} alt="gif" style={{ display: "block", width: "100%", maxHeight: 180, objectFit: "cover" }} />
-                                )}
-                              </div>
-                            )}
-                            {m.stickerName && <StickerImg name={m.stickerName} />}
-                            {(m.content || m.imageUrl) && (
-                              <div style={{ padding: m.imageUrl && !m.content ? "4px" : "8px 12px", fontSize: 13, lineHeight: 1.5, color: isUser ? "#ffffff" : "#1a1c28", background: isUser ? "#1e2035" : "#ffffff", borderRadius: isUser ? "13px 13px 3px 13px" : "3px 13px 13px 13px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)", overflow: "hidden" }}>
-                                {m.imageUrl && <img src={m.imageUrl} alt="attachment" style={{ display: "block", maxWidth: 220, maxHeight: 180, borderRadius: 8, marginBottom: m.content ? 6 : 0, objectFit: "cover" }} />}
-                                {m.content}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                {activeMsgs.map((m, i) => {
+                  if (m.role === "assistant" && !m.content && !m.gifUrl && !m.stickerName) return null;
+                  const isUser = m.role === "user";
+                  const name = isUser ? player.name : activeChar.name;
+                  const avatar = isUser ? player.avatar : activeChar.avatar;
+                  const avatarColor = isUser ? "#5060b0" : activeChar.color;
+                  const prevMsg = activeMsgs[i - 1];
+                  const nextMsg = activeMsgs[i + 1];
+                  const showLabel = !prevMsg || prevMsg.role !== m.role;
+                  const isLastInGroup = !nextMsg || nextMsg.role !== m.role;
 
-                  {loading && typingFor === activeChat && (
-                    <div style={{ marginBottom: 6 }}>
-                      <p style={{ fontSize: 11, color: "#9098b8", fontWeight: 500, margin: "0 0 3px", paddingLeft: 44 }}>{activeChar.name}</p>
-                      <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
-                        <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
-                          <Avatar src={activeChar.avatar} name={activeChar.name} size={30} color={activeChar.color} />
-                        </div>
-                        <div style={{ padding: "9px 13px", background: "#fff", borderRadius: "3px 13px 13px 13px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)", display: "flex", gap: 4, alignItems: "center" }}>
-                          {[0,1,2].map(j => <div key={j} style={{ width: 6, height: 6, borderRadius: "50%", background: "#c0c2ce", animation: "bounce 1.2s infinite", animationDelay: `${j * 0.18}s` }} />)}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={messagesEndRef} />
-                </div>
-
-                {/* Input bar */}
-                <div style={{ background: "#d0d1d8", borderTop: "1px solid #c4c5cc", padding: "8px 14px", display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
-                  {attachedImage && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", background: "#c8c9d0", borderRadius: 8 }}>
-                      <img src={attachedImage.url} alt="preview" style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />
-                      <span style={{ flex: 1, color: "#4a4c58", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImage.name}</span>
-                      <button onClick={() => setAttachedImage(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#888a96", fontSize: 16, lineHeight: 1, padding: "0 2px" }}>✕</button>
-                    </div>
-                  )}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <input ref={fileInputRef} type="file" accept="image/*,.gif" style={{ display: "none" }}
-                      onChange={e => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = ev => setAttachedImage({ url: ev.target?.result as string, name: file.name });
-                        reader.readAsDataURL(file);
-                        e.target.value = "";
-                      }} />
-
-                    {/* Media picker */}
-                    <div ref={mediaPickerRef} style={{ position: "relative", flexShrink: 0 }}>
-                      <button onClick={() => setShowMediaPicker(o => !o)} disabled={loading}
-                        style={{ width: 32, height: 32, borderRadius: "50%", background: showMediaPicker ? activeChar.color + "33" : "#c4c5cc", border: `1.5px solid ${showMediaPicker ? activeChar.color : "transparent"}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", fontSize: 16 }}>
-                        🎭
-                      </button>
-                      {showMediaPicker && (
-                        <div style={{ position: "absolute", bottom: "calc(100% + 10px)", left: 0, width: "min(300px, 80vw)", height: 280, background: "#2a2c30", border: "1px solid #3a3c42", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideUp 0.2s ease", zIndex: 100 }}>
-                          {/* Tabs */}
-                          <div style={{ display: "flex", borderBottom: "1px solid #3a3c42", flexShrink: 0 }}>
-                            {(["stickers","gif"] as const).map(tab => (
-                              <button key={tab} onClick={() => setMediaTab(tab)}
-                                style={{ flex: 1, padding: "9px 0", background: "none", border: "none", cursor: "pointer", color: mediaTab === tab ? "#e8e8ee" : "#666870", fontSize: 12, fontWeight: mediaTab === tab ? 700 : 400, borderBottom: mediaTab === tab ? `2px solid ${activeChar.color}` : "2px solid transparent" }}>
-                                {tab === "stickers" ? "🎴 Stickers" : "🎞 GIF"}
-                              </button>
-                            ))}
-                          </div>
-                          {/* Stickers */}
-                          {mediaTab === "stickers" && (
-                            <div style={{ flex: 1, overflowY: "auto", padding: 10, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-                              {stickers.length === 0 && <div style={{ gridColumn: "1/-1", textAlign: "center", color: "#666870", fontSize: 11, padding: "20px 0" }}>Add .png/.gif files to<br/>/public/stickers/</div>}
-                              {stickers.map(file => {
-                                const name = file.replace(/\.(png|gif|webp)$/i, "");
-                                return (
-                                  <button key={file} onClick={() => sendSticker(name)}
-                                    style={{ background: "#323438", border: "1px solid #3a3c42", borderRadius: 8, padding: 4, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", aspectRatio: "1" }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = "#3e4044")}
-                                    onMouseLeave={e => (e.currentTarget.style.background = "#323438")}>
-                                    <img src={`/stickers/${file}`} alt={name} style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={e => { (e.target as HTMLImageElement).style.opacity = "0.3"; }} />
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                          {/* GIF */}
-                          {mediaTab === "gif" && (
-                            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                              <div style={{ padding: "8px 10px 4px", flexShrink: 0 }}>
-                                <input
-                                  style={{ width: "100%", background: "#323438", border: "1px solid #3a3c42", borderRadius: 8, padding: "6px 10px", color: "#e8e8ee", fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
-                                  placeholder="Search GIFs..."
-                                  value={gifSearch}
-                                  onChange={e => handleGifInput(e.target.value)}
-                                />
-                              </div>
-                              <div style={{ padding: "0 10px 6px", flexShrink: 0 }}>
-                                <input
-                                  style={{ width: "100%", background: "#323438", border: `1px solid ${gifCaption.trim() ? "#c8a830" : "#3a3c42"}`, borderRadius: 8, padding: "5px 10px", color: "#e8e8ee", fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box", transition: "border 0.15s" }}
-                                  placeholder="Describe your GIF..."
-                                  value={gifCaption}
-                                  onChange={e => setGifCaption(e.target.value)}
-                                />
-                                {!gifCaption.trim() && <p style={{ color: "#e04040", fontSize: 10, margin: "3px 0 0 2px" }}>Required — describe so the character can react</p>}
-                              </div>
-                              <div style={{ flex: 1, overflowY: "auto", padding: "0 10px 10px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, gridAutoRows: "100px" }}>
-                                {gifLoading && <div style={{ gridColumn: "1/-1", textAlign: "center", color: "#666870", fontSize: 11, padding: "20px 0" }}>Searching...</div>}
-                                {!gifLoading && gifResults.length === 0 && <div style={{ gridColumn: "1/-1", textAlign: "center", color: "#666870", fontSize: 11, padding: "20px 0" }}>Search for a GIF above</div>}
-                                {gifResults.map((g, i) => (
-                                  <button key={i} onClick={() => { if (!gifCaption.trim()) return; sendGifFromPicker(g.url); }}
-                                    style={{ background: "#323438", border: `1px solid ${gifCaption.trim() ? "#3a3c42" : "#222"}`, borderRadius: 8, padding: 0, cursor: gifCaption.trim() ? "pointer" : "not-allowed", overflow: "hidden", height: "100px", opacity: gifCaption.trim() ? 1 : 0.4 }}>
-                                    <img src={g.preview} alt="gif" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                  return (
+                    <div key={i} style={{ marginBottom: 6 }}>
+                      {/* Name label above first bubble in group */}
+                      {showLabel && (
+                        <p style={{ fontSize: 11, color: "#888", margin: isUser ? "8px 40px 3px 0" : "8px 0 3px 44px", textAlign: isUser ? "right" : "left" }}>{name}</p>
                       )}
+                      <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexDirection: isUser ? "row-reverse" : "row" }}>
+                        {/* Avatar only on last in group */}
+                        {isLastInGroup
+                          ? <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><Avatar src={avatar} name={name} size={30} color={avatarColor} /></div>
+                          : <div style={{ width: 30, flexShrink: 0 }} />
+                        }
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: isUser ? "flex-end" : "flex-start", maxWidth: "68%" }}>
+                          {/* GIF */}
+                          {m.gifUrl && (
+                            <div style={{ borderRadius: 12, overflow: "hidden", maxWidth: 220 }}>
+                              {m.gifUrl.includes(".mp4")
+                                ? <video src={m.gifUrl} autoPlay loop muted playsInline style={{ display: "block", width: "100%", maxHeight: 160, objectFit: "cover" }} />
+                                : <img src={m.gifUrl} alt="gif" style={{ display: "block", width: "100%", maxHeight: 160, objectFit: "cover" }} />}
+                            </div>
+                          )}
+                          {/* Sticker */}
+                          {m.stickerName && <StickerImg name={m.stickerName} />}
+                          {/* Text bubble */}
+                          {(m.content || m.imageUrl) && (
+                            <div style={{
+                              padding: m.imageUrl && !m.content ? "4px" : "10px 16px",
+                              fontSize: 13, lineHeight: 1.55,
+                              // White for character, very dark for player — exactly like in-game
+                              background: isUser ? "#1e2028" : "#ffffff",
+                              color: isUser ? "#d8daee" : "#1e2030",
+                              borderRadius: 12,
+                              boxShadow: isUser ? "none" : "0 1px 3px rgba(0,0,0,0.08)",
+                              overflow: "hidden",
+                            }}>
+                              {m.imageUrl && <img src={m.imageUrl} alt="attachment" style={{ display: "block", maxWidth: 200, maxHeight: 160, borderRadius: 6, marginBottom: m.content ? 6 : 0, objectFit: "cover" }} />}
+                              {m.content}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
+                  );
+                })}
 
-                    {/* Attach image */}
-                    <button onClick={() => fileInputRef.current?.click()} disabled={loading}
-                      style={{ width: 32, height: 32, borderRadius: "50%", background: attachedImage ? activeChar.color + "33" : "#c4c5cc", border: `1.5px solid ${attachedImage ? activeChar.color : "transparent"}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke={attachedImage ? activeChar.color : "#7a7c8a"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </button>
-
-                    {/* Text input */}
-                    <div style={{ flex: 1, background: "#f0f0f4", borderRadius: 20, padding: "7px 14px", display: "flex", alignItems: "center", border: "1px solid #c0c2cc" }}>
-                      <input
-                        style={{ flex: 1, background: "none", border: "none", outline: "none", fontSize: 13, color: "#1a1c28", fontFamily: "inherit" }}
-                        value={input}
-                        onChange={e => setInput(e.target.value)}
-                        onKeyDown={e => e.key === "Enter" && sendMessage()}
-                        placeholder={attachedImage ? "Add a caption..." : `Message ${activeChar.name}...`}
-                        disabled={loading}
-                      />
+                {/* Typing indicator */}
+                {loading && typingFor === activeChat && (
+                  <div style={{ marginBottom: 6 }}>
+                    <p style={{ fontSize: 11, color: "#888", margin: "8px 0 3px 44px" }}>{activeChar.name}</p>
+                    <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
+                      <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><Avatar src={activeChar.avatar} name={activeChar.name} size={30} color={activeChar.color} /></div>
+                      <div style={{ padding: "10px 16px", background: "#ffffff", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", display: "flex", gap: 4, alignItems: "center" }}>
+                        {[0,1,2].map(j => <div key={j} style={{ width: 5, height: 5, borderRadius: "50%", background: "#aaa", animation: "bounce 1.2s infinite", animationDelay: `${j*0.18}s` }} />)}
+                      </div>
                     </div>
-
-                    {/* Send button */}
-                    <button onClick={sendMessage} disabled={loading || (!input.trim() && !attachedImage)}
-                      style={{ width: 34, height: 34, borderRadius: "50%", background: (input.trim() || attachedImage) ? activeChar.color : "#b0b2be", border: "none", cursor: (input.trim() || attachedImage) ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s", flexShrink: 0 }}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                        <path d="M22 2L11 13" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-                        <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </button>
                   </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* ── INPUT BAR ── */}
+              <div style={{ background: "#d4d6d8", borderTop: "1px solid rgba(0,0,0,0.1)", padding: "8px 12px", flexShrink: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                {attachedImage && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: "rgba(0,0,0,0.06)", borderRadius: 8 }}>
+                    <img src={attachedImage.url} alt="preview" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />
+                    <span style={{ flex: 1, color: "#666", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImage.name}</span>
+                    <button onClick={() => setAttachedImage(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#999", fontSize: 14 }}>✕</button>
+                  </div>
+                )}
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input ref={fileInputRef} type="file" accept="image/*,.gif" style={{ display: "none" }}
+                    onChange={e => {
+                      const file = e.target.files?.[0]; if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = ev => setAttachedImage({ url: ev.target?.result as string, name: file.name });
+                      reader.readAsDataURL(file); e.target.value = "";
+                    }} />
+
+                  {/* Media picker */}
+                  <div ref={mediaPickerRef} style={{ position: "relative", flexShrink: 0 }}>
+                    <button onClick={() => setShowMediaPicker(o => !o)} disabled={loading}
+                      style={{ width: 32, height: 32, borderRadius: 7, background: showMediaPicker ? "rgba(0,0,0,0.15)" : "rgba(0,0,0,0.08)", border: "none", cursor: "pointer", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      🎭
+                    </button>
+                    {showMediaPicker && (
+                      <div style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 0, width: "min(290px,80vw)", height: 280, background: "#1e2028", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, boxShadow: "0 8px 40px rgba(0,0,0,0.7)", display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideUp 0.2s ease", zIndex: 100 }}>
+                        <div style={{ display: "flex", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
+                          {(["stickers", "gif"] as const).map(tab => (
+                            <button key={tab} onClick={() => setMediaTab(tab)}
+                              style={{ flex: 1, padding: "9px 0", background: "none", border: "none", cursor: "pointer", color: mediaTab === tab ? "#e8e8ee" : "#404258", fontSize: 11, fontWeight: mediaTab === tab ? 700 : 400, borderBottom: mediaTab === tab ? `2px solid ${activeChar.color}` : "2px solid transparent" }}>
+                              {tab === "stickers" ? "🎴 Stickers" : "🎞 GIF"}
+                            </button>
+                          ))}
+                        </div>
+                        {mediaTab === "stickers" && (
+                          <div style={{ flex: 1, overflowY: "auto", padding: 8, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+                            {stickers.length === 0 && <div style={{ gridColumn: "1/-1", textAlign: "center", color: "#404258", fontSize: 11, padding: "20px 0" }}>No stickers yet</div>}
+                            {stickers.map(file => {
+                              const name = file.replace(/\.(png|gif|webp|jpg)$/i, "");
+                              return (
+                                <button key={file} onClick={() => sendSticker(name)}
+                                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 7, padding: 4, cursor: "pointer", aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center" }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = activeChar.color + "22")}
+                                  onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
+                                  <img src={`/stickers/${file}`} alt={name} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {mediaTab === "gif" && (
+                          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                            <div style={{ padding: "6px 8px 3px", flexShrink: 0 }}>
+                              <input style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 7, padding: "5px 9px", color: "#e8e8ee", fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+                                placeholder="Search GIFs..." value={gifSearch} onChange={e => handleGifInput(e.target.value)} />
+                            </div>
+                            <div style={{ padding: "0 8px 5px", flexShrink: 0 }}>
+                              <input style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: `1px solid ${gifCaption.trim() ? activeChar.color + "80" : "rgba(255,255,255,0.08)"}`, borderRadius: 7, padding: "5px 9px", color: "#e8e8ee", fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+                                placeholder="Describe your GIF (required)..." value={gifCaption} onChange={e => setGifCaption(e.target.value)} />
+                              {!gifCaption.trim() && <p style={{ color: "#e04040", fontSize: 9, margin: "2px 0 0 2px" }}>Required</p>}
+                            </div>
+                            <div style={{ flex: 1, overflowY: "auto", padding: "0 8px 8px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, gridAutoRows: "90px" }}>
+                              {gifLoading && <div style={{ gridColumn: "1/-1", color: "#404258", fontSize: 11, textAlign: "center", padding: "16px 0" }}>Searching...</div>}
+                              {!gifLoading && gifResults.length === 0 && <div style={{ gridColumn: "1/-1", color: "#404258", fontSize: 11, textAlign: "center", padding: "16px 0" }}>Search above</div>}
+                              {gifResults.map((g, i) => (
+                                <button key={i} onClick={() => sendGifFromPicker(g.url)}
+                                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 7, padding: 0, cursor: gifCaption.trim() ? "pointer" : "not-allowed", overflow: "hidden", opacity: gifCaption.trim() ? 1 : 0.3, height: "90px" }}>
+                                  <img src={g.preview} alt="gif" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Attach */}
+                  <button onClick={() => fileInputRef.current?.click()} disabled={loading}
+                    style={{ width: 32, height: 32, borderRadius: 7, background: attachedImage ? activeChar.color + "30" : "rgba(0,0,0,0.08)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke={attachedImage ? activeChar.color : "#777"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+
+                  {/* Text input — light like in-game */}
+                  <input
+                    ref={inputRef}
+                    style={{ flex: 1, background: "#eaebec", border: "1px solid rgba(0,0,0,0.1)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#1e2030", outline: "none", fontFamily: "inherit" }}
+                    value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()}
+                    placeholder={`Message ${activeChar.name}...`} disabled={loading} />
+
+                  {/* Send button — matches player bubble color */}
+                  <button onClick={sendMessage} disabled={loading || (!input.trim() && !attachedImage)}
+                    style={{ width: 32, height: 32, borderRadius: 8, background: (input.trim() || attachedImage) ? "#1e2028" : "rgba(0,0,0,0.1)", border: "none", cursor: (input.trim() || attachedImage) ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                      <path d="M22 2L11 13" stroke={(input.trim() || attachedImage) ? "white" : "#999"} strokeWidth="2.5" strokeLinecap="round"/>
+                      <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke={(input.trim() || attachedImage) ? "white" : "#999"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
                 </div>
-              </>
-            )}
+              </div>
+            </>)}
           </div>
         </div>
       </div>
 
       <style>{`
-        @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-5px)} }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        @keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+        @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-4px)}}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+        @keyframes slideUp{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}
+        *{box-sizing:border-box}
         ::-webkit-scrollbar{width:3px}
-        ::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.2);border-radius:3px}
+        ::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.15);border-radius:3px}
       `}</style>
     </div>
   );

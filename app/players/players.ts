@@ -16,7 +16,9 @@ export const PLAYERS: Record<string, PlayerDef> = {
 
 export function getPlayerContext(playerKey: string, characterKey: string): string {
   const player = PLAYERS[playerKey];
-
+ console.log("[playerCtx] playerKey:", playerKey, "characterKey:", characterKey);
+  console.log("[playerCtx] player found:", !!player);
+  console.log("[playerCtx] relationship found:", !!player?.relationships[characterKey]);
   // Unknown player — generic fallback
   if (!player) {
     return `[WHO YOU ARE TALKING TO: A traveler]\n- Not much is known about them. React naturally as your character would with a stranger.`;

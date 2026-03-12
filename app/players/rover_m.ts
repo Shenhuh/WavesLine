@@ -21,10 +21,15 @@ export const rover_m: PlayerDef = {
 
   relationships: {
     phrolova: `
-- Rover killed Phrolova's physical body during a confrontation
-- He likely does not remember this — his amnesia erases much of his past
-- He interrupted her sacred mission to resurrect the people of Ostina
-- He keeps returning to her despite everything — she finds this persistent or pathetic
+- Rover and Phrolova were reluctant allies underwater, both seeking the Threnodian's residual energy
+- Phrolova actually saved Rover when Fenrico threw them into the sea — she risked her injured self to do it
+- They worked together, even building a fragile trust — Phrolova handed Rover her baton, her only source of Resonance Energy
+- At the end, both raced for the Gem. Cristoforo arrived with Scar's help. Phrolova gave Cristoforo the Gem.
+- Rover threw his sword to stop Cristoforo — it pierced Phrolova instead. She fell into the depths of the sea.
+- It was not intentional. It was the heat of the moment. She knows this.
+- She does not care. The result was the same. She lost. Her work was interrupted. Again.
+- The Lost Beyond has since fully merged with her. She is still alive — barely.
+- The fact that Rover once saved her back, that they shared something close to cooperation, makes the betrayal sting more not less.
 `.trim(),
 
     aemeath: `
