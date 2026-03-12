@@ -225,6 +225,119 @@ function LTInviteBubble({
   );
 }
 
+// ── Active Users Counter Component ────────────────────────────────────────
+function ActiveUsersCounter() {
+  const [activeCount, setActiveCount] = useState<number>(1);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected'>('connected');
+
+  useEffect(() => {
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    
+    const connectSSE = () => {
+      try {
+        eventSource = new EventSource('/api/active-users');
+        
+        eventSource.onopen = () => {
+          setConnectionStatus('connected');
+          if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
+          }
+        };
+        
+        eventSource.onmessage = (event) => {
+          try {
+            // Ignore ping messages (they start with ':')
+            if (event.data && !event.data.startsWith(':')) {
+              const data = JSON.parse(event.data);
+              if (typeof data.count === 'number') {
+                setActiveCount(data.count);
+              }
+            }
+          } catch (e) {
+            console.error('Failed to parse SSE message:', e);
+          }
+        };
+        
+        eventSource.onerror = () => {
+          setConnectionStatus('disconnected');
+          eventSource?.close();
+          
+          // Attempt to reconnect after 3 seconds
+          if (!reconnectTimeout) {
+            reconnectTimeout = setTimeout(() => {
+              reconnectTimeout = null;
+              connectSSE();
+            }, 3000);
+          }
+        };
+      } catch (error) {
+        console.error('Failed to create EventSource:', error);
+      }
+    };
+    
+    connectSSE();
+    
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+    };
+  }, []);
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      marginLeft: 'auto',
+      marginRight: 8,
+      padding: '4px 8px',
+      background: 'rgba(255,255,255,0.06)',
+      borderRadius: 20,
+      border: '1px solid rgba(200,168,48,0.15)',
+    }}>
+      <div style={{
+        width: 8,
+        height: 8,
+        borderRadius: '50%',
+        background: connectionStatus === 'connected' ? '#4ade80' : '#f87171',
+        animation: connectionStatus === 'connected' ? 'pulse 2s infinite' : 'none',
+      }} />
+      
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c8a830" strokeWidth="2">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" strokeLinecap="round"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87" strokeLinecap="round"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" strokeLinecap="round"/>
+        </svg>
+        <span style={{
+          color: '#e8e8ee',
+          fontSize: 12,
+          fontWeight: 600,
+          minWidth: 24,
+          textAlign: 'center',
+        }}>
+          {activeCount}
+        </span>
+      </div>
+
+      <span style={{
+        color: connectionStatus === 'connected' ? '#9a9cb0' : '#f87171',
+        fontSize: 10,
+        cursor: 'help',
+      }}>
+        {connectionStatus === 'connected' ? 'online' : 'offline'}
+      </span>
+    </div>
+  );
+}
+
 export default function Home() {
   const [player, setPlayer] = useState<typeof ALL_CHARACTERS[0] | null>(null);
   const [selectedKey, setSelectedKey] = useState(ALL_CHARACTERS[0].key);
@@ -580,11 +693,14 @@ export default function Home() {
 
       <div style={{ width: isMobile ? "100vw" : "min(820px,98vw)", height: isMobile ? "100dvh" : "min(560px,96vh)", borderRadius: isMobile ? 0 : 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 32px 80px rgba(0,0,0,0.9)", border: "1px solid rgba(255,255,255,0.05)" }}>
 
-        {/* TOP BAR */}
+        {/* TOP BAR - Added ActiveUsersCounter */}
         <div style={{ height: 40, background: "#1e2028", display: "flex", alignItems: "center", padding: "0 14px", gap: 10, flexShrink: 0, borderBottom: "1px solid rgba(0,0,0,0.3)" }}>
           <div style={{ width: 22, height: 22, borderRadius: 6, background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><WavesLineLogo size={14} /></div>
           <span style={{ color: "#c8c9d0", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em" }}>WavesLine</span>
-          <div style={{ flex: 1 }} />
+          
+          {/* Active Users Counter - placed here */}
+          <ActiveUsersCounter />
+          
           <button onClick={() => setPlayer(null)}
             style={{ display: "flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: "3px 10px 3px 5px", cursor: "pointer" }}
             onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
