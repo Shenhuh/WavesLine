@@ -1,7 +1,7 @@
 // app/api/chat/route.ts
 import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
-import { buildSystemPrompt } from "@/app/characters/characters";
+import { buildSystemPrompt, getCharacterReferenceImages } from "@/app/characters/characters";
 import fs from "fs";
 import path from "path";
 
@@ -15,6 +15,11 @@ const deepseekClient = new OpenAI({
 const openrouterClient = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: process.env.OPENROUTER_API_KEY!,
+});
+
+// Vision: OpenAI gpt-4o-mini
+const openaiClient = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
 });
 
 // ── GIPHY ─────────────────────────────────────────────────────────────────
@@ -72,8 +77,6 @@ type VisionMessage = {
 type ChatMessage = TextMessage | VisionMessage;
 
 // ── MODELS ────────────────────────────────────────────────────────────────
-const VISION_MODEL = "qwen/qwen2.5-vl-72b-instruct:free";
-const VISION_MODEL_FALLBACK = "qwen/qwen2.5-vl-32b-instruct:free";
 const OPENROUTER_FALLBACKS = [
   "meta-llama/llama-3.1-8b-instruct:free",
   "meta-llama/llama-3.3-70b-instruct:free",
@@ -105,6 +108,31 @@ async function callOpenRouter(model: string, messages: ChatMessage[], systemProm
   const response = await openrouterClient.chat.completions.create({
     model,
     messages: [{ role: "system" as const, content: systemPrompt }, ...(messages as any)],
+    ...PARAMS,
+  });
+  return response.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
+async function callOpenAIVision(messages: ChatMessage[], systemPrompt: string, referenceImageUrl?: string, referenceImageChibiUrl?: string): Promise<string> {
+  const extraMessages: any[] = (referenceImageUrl || referenceImageChibiUrl) ? [{
+    role: "user",
+    content: [
+      { type: "text", text: "These are reference images of yourself so you know what you look like — normal and chibi versions:" },
+      ...(referenceImageUrl ? [{ type: "image_url", image_url: { url: referenceImageUrl, detail: "low" } }] : []),
+      ...(referenceImageChibiUrl ? [{ type: "image_url", image_url: { url: referenceImageChibiUrl, detail: "low" } }] : []),
+    ]
+  }, {
+    role: "assistant",
+    content: "Understood. I recognize my own appearance from these references."
+  }] : [];
+
+  const response = await openaiClient.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system" as const, content: systemPrompt },
+      ...extraMessages,
+      ...(messages as any)
+    ],
     ...PARAMS,
   });
   return response.choices?.[0]?.message?.content?.trim() ?? "";
@@ -145,6 +173,10 @@ export async function POST(req: NextRequest) {
     const unblockAccepted: boolean = body.unblockAccepted ?? false;
     const availableStickers = getAvailableStickers();
     let systemPrompt = buildSystemPrompt(character, playerName, playerKey, availableStickers);
+    const base = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
+    const refImages = getCharacterReferenceImages(character);
+    const referenceImageUrl = refImages.normal ? `${base}${refImages.normal}` : undefined;
+    const referenceImageChibiUrl = refImages.chibi ? `${base}${refImages.chibi}` : undefined;
 
     // Inject unblock context
     if (unblockRequest) {
@@ -190,18 +222,26 @@ export async function POST(req: NextRequest) {
       } catch (err: any) {
         console.warn("[chat] deepseek-chat failed:", err.message);
       }
+      // DeepSeek failed — try gpt-4o-mini before OpenRouter
+      if (!rawContent) {
+        try {
+          console.log("[chat] trying fallback: gpt-4o-mini");
+          rawContent = await callOpenAIVision(messages, systemPrompt);
+          if (rawContent) console.log("[chat] success: gpt-4o-mini");
+        } catch (err: any) {
+          console.warn("[chat] gpt-4o-mini failed:", err.message);
+        }
+      }
     }
 
-    // 2. Vision models for images
+    // 2. Vision: gpt-4o-mini for images
     if (!rawContent && hasImage) {
-      for (const vm of [VISION_MODEL, VISION_MODEL_FALLBACK]) {
-        try {
-          console.log("[chat] trying vision:", vm);
-          rawContent = await callOpenRouter(vm, messages, systemPrompt);
-          if (rawContent) { console.log("[chat] success:", vm); break; }
-        } catch (err: any) {
-          console.warn("[chat] vision failed:", vm, err.message);
-        }
+      try {
+        console.log("[chat] trying vision: gpt-4o-mini");
+        rawContent = await callOpenAIVision(messages, systemPrompt, referenceImageUrl, referenceImageChibiUrl);
+        if (rawContent) console.log("[chat] success: gpt-4o-mini");
+      } catch (err: any) {
+        console.warn("[chat] gpt-4o-mini vision failed:", err.message);
       }
       // Vision failed — fall back to DeepSeek text-only
       if (!rawContent) {
@@ -215,7 +255,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. OpenRouter fallbacks
+    // 3. GPT-4o-mini fallback if DeepSeek fails
+    if (!rawContent) {
+      try {
+        console.log("[chat] fallback: gpt-4o-mini");
+        rawContent = await callOpenAIVision(messages, systemPrompt);
+        if (rawContent) console.log("[chat] success: gpt-4o-mini fallback");
+      } catch (err: any) {
+        console.warn("[chat] gpt-4o-mini fallback failed:", err.message);
+      }
+    }
+
+    // 4. OpenRouter free fallbacks
     if (!rawContent) {
       for (const model of OPENROUTER_FALLBACKS) {
         try {
@@ -239,6 +290,19 @@ export async function POST(req: NextRequest) {
 
     // Parse multi-message response
     let parsed = parseAIResponse(rawContent);
+
+    // Parse ANN delta tag — MUST happen before any stripping
+    let annoyanceDelta = 0;
+    parsed = parsed.map(p => {
+      const match = p.text.match(/\[ANN:([+-]\d+)\]/i);
+      if (match) {
+        annoyanceDelta += parseInt(match[1], 10);
+        console.log(`[annoyance] tag found: ${match[0]} → delta ${annoyanceDelta}`);
+        return { ...p, text: p.text.replace(/\[ANN:[+-]\d+\]/gi, '').trim() };
+      }
+      return p;
+    });
+    if (annoyanceDelta === 0) console.warn("[annoyance] no [ANN] tag found in response — AI may not be appending it");
 
     // Phrolova: strip quotes, ellipsis, and forbidden openers
     if (character === "phrolova") {
@@ -269,13 +333,27 @@ export async function POST(req: NextRequest) {
 
     // Drop messages that are empty or just punctuation after post-processing
     parsed = parsed.filter(p => p.text.replace(/^[.…\s]+$/, "").trim() || p.gifQuery || p.stickerName);
-    if (parsed.length === 0) parsed = [{ text: "", gifQuery: null, stickerName: null }];
+    if (parsed.length === 0) parsed = [{ text: character === "phrolova" ? "" : "...", gifQuery: null, stickerName: null }];
+
+    // Phrolova: if a message has a sticker/gif but no text, drop the media — text is required
+    if (character === "phrolova") {
+      parsed = parsed.map(p => {
+        if ((p.stickerName || p.gifQuery) && !p.text.trim()) {
+          console.warn("[chat] phrolova sent sticker/gif with no text — dropping media");
+          return { text: "", gifQuery: null, stickerName: null };
+        }
+        return p;
+      });
+      // Re-filter after potential drops
+      parsed = parsed.filter(p => p.text.trim() || p.gifQuery || p.stickerName);
+      if (parsed.length === 0) parsed = [{ text: "", gifQuery: null, stickerName: null }];
+    }
 
     // Fetch GIFs
     const messagesOut = await Promise.all(parsed.map(async p => {
       let gifUrl: string | null = null;
       if (p.gifQuery) gifUrl = await fetchGiphyGif(p.gifQuery);
-      const finalText = p.text || (p.stickerName || gifUrl ? "" : "...");
+      const finalText = p.text || (p.stickerName || gifUrl ? "" : (character === "phrolova" ? "" : "..."));
       return { content: finalText, gifUrl, stickerName: p.stickerName ?? null };
     }));
 
@@ -286,6 +364,7 @@ export async function POST(req: NextRequest) {
       gifUrl: messagesOut[0]?.gifUrl ?? null,
       stickerName: messagesOut[0]?.stickerName ?? null,
       singSong,
+      annoyanceDelta,
     });
 
   } catch (error: any) {

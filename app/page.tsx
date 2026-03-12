@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import ListenTogether from "./components/ListenTogether";
 
 // ── PHROLOVA'S SONG — prebuilt, zero tokens ───────────────────────────────
 const PHROLOVA_SONG = [
@@ -59,9 +60,9 @@ const ALL_CHARACTERS = [
   // { key: "aemeath",     name: "Aemeath",       avatar: "/avatars/aemeath.png" },
 ];
 
-const CHAT_CHARACTERS: Record<string, { name: string; element: string; color: string; avatar: string; title: string }> = {
-  aemeath:  { name: "Aemeath",  element: "Fusion", color: "#e8702a", avatar: "/avatars/aemeath.png",  title: "Digital Ghost of Startorch" },
-  phrolova: { name: "Phrolova", element: "Havoc",  color: "#9d6fdf", avatar: "/avatars/phrolova.png", title: "Former Overseer" },
+const CHAT_CHARACTERS: Record<string, { name: string; color: string; avatar: string; title: string; annoyanceThreshold: number; annoyanceBlockMessage: string }> = {
+  aemeath:  { name: "Aemeath",  color: "#e8702a", avatar: "/avatars/aemeath.png",  title: "Digital Ghost of Startorch", annoyanceThreshold: 100, annoyanceBlockMessage: ". . ." },
+  phrolova: { name: "Phrolova", color: "#9d6fdf", avatar: "/avatars/phrolova.png", title: "Former Overseer",              annoyanceThreshold: 75,  annoyanceBlockMessage: "I have tolerated enough. Do not contact me again." },
 };
 
 type Message = { role: string; content: string; time?: string; imageUrl?: string; gifUrl?: string; stickerName?: string; gifCaption?: string; isBlock?: boolean };
@@ -137,7 +138,7 @@ function AddContactModal({ existing, onAdd, onCancel }: { existing: string[]; on
                 <Avatar src={ch.avatar} name={ch.name} size={38} color={ch.color} />
                 <div>
                   <p style={{ color: "#e8e8ee", fontSize: 13, fontWeight: 600, margin: 0 }}>{ch.name}</p>
-                  <p style={{ color: ch.color, fontSize: 11, margin: 0 }}>{ch.element}</p>
+                  <p style={{ color: ch.color, fontSize: 11, margin: 0 }}>{ch.title}</p>
                 </div>
               </button>
             );
@@ -156,6 +157,8 @@ export default function Home() {
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [blockedChats, setBlockedChats] = useState<Record<string, boolean>>({});
   const [unblockLoading, setUnblockLoading] = useState(false);
+  const [annoyance, setAnnoyance] = useState<Record<string, number>>({});
+  const [showListenTogether, setShowListenTogether] = useState(false);
   const [allMessages, setAllMessages] = useState<Record<string, Message[]>>({});
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -177,6 +180,7 @@ export default function Home() {
   const mediaPickerRef = useRef<HTMLDivElement>(null);
   const activeChatRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const blockingRef = useRef<Record<string, boolean>>({});
   activeChatRef.current = activeChat;
   const [isMobile, setIsMobile] = useState(false);
   const [mobileView, setMobileView] = useState<"sidebar" | "chat">("sidebar");
@@ -229,8 +233,36 @@ export default function Home() {
         toastTimer.current = setTimeout(() => setToast(null), 4000);
       }
 
+      // Handle annoyance delta
+      if (reply.annoyanceDelta != null && !blockedChats[chatKey]) {
+        const char = CHAT_CHARACTERS[chatKey];
+        const threshold = char?.annoyanceThreshold ?? 100;
+        const blockMsg = char?.annoyanceBlockMessage ?? "I have had enough.";
+
+        setAnnoyance(prev => {
+          const current = prev[chatKey] ?? 0;
+          const next = Math.min(100, Math.max(0, current + reply.annoyanceDelta));
+          console.log(`[annoyance] ${chatKey}: ${current} + ${reply.annoyanceDelta} = ${next} / ${threshold}`);
+
+          if (next >= threshold) {
+            if (blockingRef.current[chatKey]) return { ...prev, [chatKey]: next };
+            blockingRef.current[chatKey] = true;
+            setTimeout(async () => {
+              await new Promise(r => setTimeout(r, 400));
+              setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] || []), { role: "assistant", content: blockMsg, time: getTime() }] }));
+              await new Promise(r => setTimeout(r, 600));
+              setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] || []), { role: "assistant", content: "[has blocked you]", time: getTime(), isBlock: true }] }));
+              setBlockedChats(p => ({ ...p, [chatKey]: true }));
+            }, 0);
+            return { ...prev, [chatKey]: 0 };
+          }
+          return { ...prev, [chatKey]: next };
+        });
+      }
+
       // Auto-play prebuilt song if singSong flag is true
-      if (reply.singSong) {
+      if (reply.singSong && !blockingRef.current[chatKey + "_song"]) {
+        blockingRef.current[chatKey + "_song"] = true;
         // Small intro pause then "Fine."
         await new Promise(r => setTimeout(r, 600));
         setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "Fine.", time: getTime() }] }));
@@ -248,10 +280,14 @@ export default function Home() {
         const updatedMsgs = [...messages, { role: "assistant" as const, content: "[just finished singing her song for you]" }];
         await triggerAIReply(chatKey, updatedMsgs);
 
-        // Block the user after singing
-        await new Promise(r => setTimeout(r, 800));
-        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "[Phrolova has blocked you]", time: getTime(), isBlock: true }] }));
-        setBlockedChats(prev => ({ ...prev, [chatKey]: true }));
+        // Block the user after singing (guarded)
+        if (!blockingRef.current[chatKey]) {
+          blockingRef.current[chatKey] = true;
+          await new Promise(r => setTimeout(r, 800));
+          setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "[Phrolova has blocked you]", time: getTime(), isBlock: true }] }));
+          setBlockedChats(prev => ({ ...prev, [chatKey]: true }));
+        }
+        blockingRef.current[chatKey + "_song"] = false;
         return;
       }
     } catch {
@@ -270,6 +306,15 @@ export default function Home() {
     const roll = Math.random();
     const accepted = roll < 0.20; // 20% chance
 
+    if (!accepted) {
+      // Decline — no API call, just a system message
+      await new Promise(r => setTimeout(r, 800));
+      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "system", content: "Your request was ignored.", time: getTime() }] }));
+      setUnblockLoading(false);
+      return;
+    }
+
+    // Accepted — call API so she can respond
     const messages = allMessages[chatKey] || [];
     const context = [...messages, { role: "user" as const, content: "[sent an unblock request]" }];
 
@@ -282,7 +327,7 @@ export default function Home() {
           playerName: player.name,
           playerKey: player.key,
           unblockRequest: true,
-          unblockAccepted: accepted,
+          unblockAccepted: true,
         }),
       });
       const reply = await res.json();
@@ -292,9 +337,9 @@ export default function Home() {
         const m = replyMsgs[i];
         setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: m.content ?? "", time: getTime() }] }));
       }
-      if (accepted) {
-        setBlockedChats(prev => ({ ...prev, [chatKey]: false }));
-      }
+      blockingRef.current[chatKey] = false;
+      setAnnoyance(prev => ({ ...prev, [chatKey]: 0 }));
+      setBlockedChats(prev => ({ ...prev, [chatKey]: false }));
     } catch {
       setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "...", time: getTime() }] }));
     }
@@ -501,12 +546,27 @@ export default function Home() {
 
             {activeChat && activeChar && (<>
               {/* Chat header — light, just character name like in-game */}
-              <div style={{ height: 44, background: "#e0e1e3", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", padding: isMobile ? "0 10px" : "0 20px", flexShrink: 0 }}>
-                {isMobile && (
-                  <button onClick={() => setMobileView("sidebar")} style={{ background: "none", border: "none", cursor: "pointer", color: "#888", fontSize: 22, padding: "0 6px 0 0" }}>‹</button>
-                )}
-                <span style={{ color: "#1e2030", fontSize: 15, fontWeight: 700 }}>{activeChar.name}</span>
-                {typingFor === activeChat && <span style={{ color: "#888", fontSize: 11, fontStyle: "italic", marginLeft: 10 }}>typing...</span>}
+              <div style={{ height: 44, background: "#e0e1e3", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", padding: isMobile ? "0 10px" : "0 20px", flexShrink: 0, justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {isMobile && (
+                    <button onClick={() => setMobileView("sidebar")} style={{ background: "none", border: "none", cursor: "pointer", color: "#888", fontSize: 22, padding: "0 6px 0 0" }}>‹</button>
+                  )}
+                  <span style={{ color: "#1e2030", fontSize: 15, fontWeight: 700 }}>{activeChar.name}</span>
+                  {typingFor === activeChat && <span style={{ color: "#888", fontSize: 11, fontStyle: "italic", marginLeft: 10 }}>typing...</span>}
+                </div>
+                {/* Listen Together button */}
+                <button onClick={() => setShowListenTogether(true)}
+                  title="Listen Together"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#999", display: "flex", alignItems: "center", gap: 5, fontSize: 11, padding: "4px 8px", borderRadius: 6 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "rgba(0,0,0,0.07)"; e.currentTarget.style.color = activeChar.color; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#999"; }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M9 18V5l12-2v13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    <circle cx="6" cy="18" r="3" stroke="currentColor" strokeWidth="2"/>
+                    <circle cx="18" cy="16" r="3" stroke="currentColor" strokeWidth="2"/>
+                  </svg>
+                  <span>Listen Together</span>
+                </button>
               </div>
 
               {/* Messages */}
@@ -520,6 +580,14 @@ export default function Home() {
 
                 {activeMsgs.map((m, i) => {
                   if (m.role === "assistant" && !m.content && !m.gifUrl && !m.stickerName) return null;
+
+                  // System message — centered italic notice
+                  if (m.role === "system") return (
+                    <div key={i} style={{ textAlign: "center", padding: "4px 16px" }}>
+                      <span style={{ fontSize: 11, color: "#999", fontStyle: "italic" }}>{m.content}</span>
+                    </div>
+                  );
+
                   const isUser = m.role === "user";
                   const name = isUser ? player.name : activeChar.name;
                   const avatar = isUser ? player.avatar : activeChar.avatar;
@@ -707,6 +775,31 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Listen Together modal */}
+      {showListenTogether && activeChar && player && (
+        <ListenTogether
+          characterKey={activeChat!}
+          characterName={activeChar.name}
+          characterColor={activeChar.color}
+          characterAvatar={activeChar.avatar}
+          playerName={player.name}
+          playerKey={player.key}
+          playerAvatar={player.avatar}
+          onClose={() => setShowListenTogether(false)}
+          onBlock={async (blockMsg: string) => {
+            setShowListenTogether(false);
+            const chatKey = activeChat!;
+            await new Promise(r => setTimeout(r, 400));
+            setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] || []), { role: "assistant", content: blockMsg, time: getTime() }] }));
+            await new Promise(r => setTimeout(r, 600));
+            setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] || []), { role: "assistant", content: "[has blocked you]", time: getTime(), isBlock: true }] }));
+            setBlockedChats(p => ({ ...p, [chatKey]: true }));
+            blockingRef.current[chatKey] = true;
+            setAnnoyance(p => ({ ...p, [chatKey]: 0 }));
+          }}
+        />
+      )}
 
       <style>{`
         @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-4px)}}

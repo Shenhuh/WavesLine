@@ -1,11 +1,16 @@
+// app/characters/types.ts
+
 export type CharacterDef = {
   key: string;
   name: string;
-  element: string;
   color: string;
   avatar: string;
   title: string;
-  greeting: string;
   system: string;
-  // playerCtx removed — player context is now handled dynamically via players/players.ts
+  referenceImage?: string;       // e.g. "/appearance/normal/phrolova.webp"
+  referenceImageChibi?: string;  // e.g. "/appearance/chibi/phrolova.webp"
+
+  // Annoyance meter
+  annoyanceThreshold: number;    // 0-100, when reached character blocks user
+  annoyanceBlockMessage: string; // what the character says right before blocking
 };

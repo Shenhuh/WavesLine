@@ -21,6 +21,15 @@ export const CHARACTERS: Record<string, import("./types").CharacterDef> = {
   // lynae,
 };
 
+// ── REFERENCE IMAGE ───────────────────────────────────────────────────────
+export function getCharacterReferenceImages(characterKey: string): { normal?: string; chibi?: string } {
+  const char = CHARACTERS[characterKey];
+  return {
+    normal: char?.referenceImage,
+    chibi: char?.referenceImageChibi,
+  };
+}
+
 // ── BUILD SYSTEM PROMPT ───────────────────────────────────────────────────
 export function buildSystemPrompt(
   characterKey: string,
@@ -61,7 +70,7 @@ ${playerContext}
 5. Do NOT assume any shared history with ${playerName} unless they bring it up.
 6. Use ${playerName}'s name occasionally, not every message.
 7. MULTI-MESSAGE: Sometimes split your reply into 2-3 short messages using " ||| " as separator. Only when natural — a pause, second thought, follow-up reaction. Max 3 splits.
-8. LANGUAGE: Always respond in a natural mix of the user's language and English, the way native speakers naturally code-switch in casual conversation. Never use deep or overly formal vocabulary. Keep it natural and easy to understand.
+8. LANGUAGE: Detect the language the user is writing in and always respond in that exact same language. If they write in Filipino, respond in Filipino. If they write in Japanese, respond in Japanese. If they write in Spanish, respond in Spanish. Always mirror the user's language — never respond in a different language than what they used.
 
 ${mediaBlock}
 `.trim();
