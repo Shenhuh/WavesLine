@@ -10,6 +10,16 @@ function getTime() {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+// Decode HTML entities from YouTube API titles (e.g. &quot; → ")
+function decodeHtml(str: string): string {
+  return str
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
 interface Props {
   characterKey: string;
   characterName: string;
@@ -20,13 +30,37 @@ interface Props {
   playerAvatar: string;
   onClose: () => void;
   onBlock: (message: string) => void;
+  // Called when notable session events happen, so main chat can stay in sync
+  onSessionUpdate?: (event: SessionEvent) => void;
 }
+
+export type SessionEvent =
+  | { type: "video_started"; title: string; channel: string }
+  | { type: "video_ended"; title: string }
+  | { type: "reaction"; text: string }
+  | { type: "session_ended" };
+
+// All possible reaction angles — cycle through these to force variety
+const REACTION_ANGLES = [
+  { key: "visual_character", prompt: "Describe exactly what the character on screen looks like right now — their hair, outfit, expression, or pose. Be specific, not vague." },
+  { key: "visual_background", prompt: "Describe the background, setting, or environment visible in the video right now. Colors, lighting, what's in the scene." },
+  { key: "visual_effects", prompt: "What visual effects, particles, or motion graphics are happening on screen? How do they make you feel?" },
+  { key: "music_melody", prompt: "Comment on the melody or instrumentation of the music right now. What instruments? What's the mood of this specific moment?" },
+  { key: "music_rhythm", prompt: "Comment on the rhythm, tempo, or beat of the music. Is it building, dropping, steady? What does the rhythm do to you?" },
+  { key: "lyrics_line", prompt: "React to a specific lyric or vocal moment happening right now. What does it mean to you?" },
+  { key: "emotion_evoked", prompt: "What emotion is this moment pulling out of you? Be specific — not just 'sad' but what KIND of sad, what memory or feeling." },
+  { key: "color_palette", prompt: "Comment on the color palette on screen right now. What colors dominate? What do they remind you of?" },
+  { key: "story_moment", prompt: "What's happening narratively or visually in the video at this moment? What story is being told?" },
+  { key: "personal_connection", prompt: "Does this moment remind you of something from your past or your world? Make a personal, in-character connection." },
+  { key: "contrast_observation", prompt: "What contrast or tension do you notice — between the visuals and music, or between two elements on screen?" },
+  { key: "detail_focus", prompt: "Pick one tiny detail you notice — something most people would miss. A small thing in the frame or the sound." },
+];
 
 export default function ListenTogether({
   characterKey, characterName, characterColor,
-  characterAvatar, playerName, playerKey, playerAvatar, onClose, onBlock
+  characterAvatar, playerName, playerKey, playerAvatar, onClose, onBlock, onSessionUpdate
 }: Props) {
-  const [phase, setPhase] = useState<"search" | "waiting" | "playing">("search");
+  const [phase, setPhase] = useState<"search" | "waiting" | "playing" | "ended">("search");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<VideoResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -39,7 +73,7 @@ export default function ListenTogether({
   const [isMobile, setIsMobile] = useState(false);
 
   const playerRef = useRef<any>(null);
-  const periodicRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const periodicRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timeTrackerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const usedTranscriptOffsets = useRef<Set<number>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -48,7 +82,18 @@ export default function ListenTogether({
   const annoyanceRef = useRef(0);
   const blockingRef = useRef(false);
 
-  // Detect mobile properly with useEffect
+  // Refs to avoid stale closures in timers
+  const currentTimeRef = useRef(0);
+  const messagesRef = useRef<LTMessage[]>([]);
+  const selectedVideoRef = useRef<VideoResult | null>(null);
+
+  // Track which reaction angles have been used (cycle through all before repeating)
+  const usedAnglesRef = useRef<Set<string>>(new Set());
+
+  // Track last N reaction texts for semantic dedup
+  const reactionHistoryRef = useRef<string[]>([]);
+
+  // Detect mobile
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640);
     check();
@@ -71,11 +116,19 @@ export default function ListenTogether({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Keep refs in sync so timer callbacks always read fresh values (avoid stale closures)
+  useEffect(() => { currentTimeRef.current = currentTime; }, [currentTime]);
+  useEffect(() => { selectedVideoRef.current = selectedVideo; }, [selectedVideo]);
+
   const addMessage = useCallback((msg: LTMessage) => {
-    setMessages(prev => [...prev, msg]);
+    setMessages(prev => {
+      const next = [...prev, msg];
+      messagesRef.current = next;
+      return next;
+    });
   }, []);
 
-  // ── SEARCH ─────────────────────────────────────────────────────────────
+  // ── SEARCH ──────────────────────────────────────────────────────────────
   async function search() {
     if (!query.trim() || searching) return;
     setSearching(true);
@@ -87,14 +140,20 @@ export default function ListenTogether({
     setSearching(false);
   }
 
-  // ── SELECT VIDEO ───────────────────────────────────────────────────────
+  // ── SELECT VIDEO ─────────────────────────────────────────────────────────
   async function selectVideo(video: VideoResult) {
     if (inviteLockRef.current) return;
     inviteLockRef.current = true;
     setSelectedVideo(video);
     setPhase("waiting");
     setResults([]);
-    addMessage({ role: "system", content: `You invited ${characterName} to listen to "${video.title}"`, time: getTime() });
+
+    // Reset all tracking for new video
+    usedAnglesRef.current = new Set();
+    reactionHistoryRef.current = [];
+    usedTranscriptOffsets.current.clear();
+
+    addMessage({ role: "system", content: `You invited ${characterName} to listen to "${decodeHtml(video.title)}"`, time: getTime() });
 
     fetch(`/api/transcript?id=${video.id}`)
       .then(r => r.json())
@@ -107,8 +166,9 @@ export default function ListenTogether({
       const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{ role: "user", content: `[Listen Together invite]: ${playerName} wants to listen to "${video.title}" by ${video.channel} together on WavesLine. ${accepted ? "Accept briefly in character." : "Decline briefly in character."}` }],
+          messages: [{ role: "user", content: `[Listen Together invite]: ${playerName} wants to listen to "${decodeHtml(video.title)}" by ${decodeHtml(video.channel)} together on WavesLine. ${accepted ? "Accept briefly in character." : "Decline briefly in character."}` }],
           character: characterKey, playerName, playerKey,
+          listenTogether: true,
           listenTogetherInvite: true, listenAccepted: accepted,
         }),
       });
@@ -120,6 +180,7 @@ export default function ListenTogether({
     if (accepted) {
       await new Promise(r => setTimeout(r, 500));
       addMessage({ role: "system", content: `${characterName} joined. Now playing.`, time: getTime() });
+      onSessionUpdate?.({ type: "video_started", title: video.title, channel: video.channel });
       startPlaying(video);
     } else {
       setPhase("search");
@@ -128,7 +189,7 @@ export default function ListenTogether({
     }
   }
 
-  // ── START PLAYING ──────────────────────────────────────────────────────
+  // ── START PLAYING ────────────────────────────────────────────────────────
   function startPlaying(video: VideoResult) {
     setPhase("playing");
 
@@ -136,14 +197,10 @@ export default function ListenTogether({
       if ((window as any).YT?.Player) {
         playerRef.current = new (window as any).YT.Player("yt-player", {
           videoId: video.id,
-          playerVars: {
-            autoplay: 1,
-            rel: 0,
-            modestbranding: 1,
-            playsinline: 1,   // CRITICAL for iOS
-            fs: 0,
+          playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1, fs: 0 },
+          events: {
+            onStateChange: (e: any) => { if (e.data === 0) handleVideoEnd(); },
           },
-          events: { onStateChange: (e: any) => { if (e.data === 0) handleVideoEnd(); } },
         });
       } else if (attempts < 20) {
         setTimeout(() => tryInit(attempts + 1), 300);
@@ -157,90 +214,360 @@ export default function ListenTogether({
       }
     }, 1000);
 
-    // React every 5-15 seconds randomly
+    // Schedule periodic reactions
     const scheduleNext = () => {
-        const delay = 15000 + Math.random() * 5000;  // 15-20 seconds (15000-20000 ms)
-        periodicRef.current = setTimeout(() => {
-            triggerReaction("periodic");
-            scheduleNext();
-        }, delay) as any;
+      const delay = 22000 + Math.random() * 18000; // 22–40 seconds
+      periodicRef.current = setTimeout(() => {
+        triggerReaction("periodic");
+        scheduleNext();
+      }, delay) as any;
     };
     scheduleNext();
   }
 
-  // ── TRANSCRIPT REACTIONS ───────────────────────────────────────────────
+  // ── PICK NEXT ANGLE (never repeats until all used) ───────────────────────
+  function pickNextAngle(): typeof REACTION_ANGLES[0] {
+    // If all angles used, reset
+    if (usedAnglesRef.current.size >= REACTION_ANGLES.length) {
+      usedAnglesRef.current = new Set();
+    }
+
+    // Find angles not yet used this cycle
+    const available = REACTION_ANGLES.filter(a => !usedAnglesRef.current.has(a.key));
+    // Pick randomly from available
+    const angle = available[Math.floor(Math.random() * available.length)];
+    usedAnglesRef.current.add(angle.key);
+    return angle;
+  }
+
+  // ── SEMANTIC DEDUP: check if new text is too similar to recent ones ───────
+  function isSemanticallyRepetitive(newText: string): boolean {
+    const normalize = (t: string) => t.toLowerCase().replace(/[^\w\s]/g, "").trim();
+    const newNorm = normalize(newText);
+    const newWords = newNorm.split(/\s+/).filter(w => w.length > 3);
+
+    for (const old of reactionHistoryRef.current.slice(-5)) {
+      const oldNorm = normalize(old);
+
+      // Exact or near-exact match
+      if (newNorm === oldNorm) return true;
+
+      // Key phrase overlap check — if they share a 4+ word sequence
+      const newBigrams = new Set<string>();
+      for (let i = 0; i < newWords.length - 3; i++) {
+        newBigrams.add(newWords.slice(i, i + 4).join(" "));
+      }
+      const oldWords = oldNorm.split(/\s+/).filter(w => w.length > 3);
+      for (let i = 0; i < oldWords.length - 3; i++) {
+        if (newBigrams.has(oldWords.slice(i, i + 4).join(" "))) return true;
+      }
+
+      // High word overlap ratio
+      const newSet = new Set(newWords);
+      const oldSet = new Set(oldWords);
+      const intersection = [...newSet].filter(w => oldSet.has(w)).length;
+      const unionSize = Math.max(newSet.size, 1);
+      if (intersection / unionSize > 0.55 && newSet.size > 4) return true;
+    }
+    return false;
+  }
+
+  // ── TRIGGER REACTION ─────────────────────────────────────────────────────
+  async function triggerReaction(
+    type: "periodic" | "transcript",
+    transcriptLine?: string,
+    retryCount = 0
+  ) {
+    if (reactionLockRef.current || blockingRef.current) return;
+    // Use ref so this check works even inside a stale timer closure
+    if (currentTimeRef.current < 5) return;
+
+    if (type === "transcript" && transcriptLine) {
+      if (transcriptLine.length < 20) return;
+      if (transcriptLine.match(/^\([^)]+\)$|^\[[^\]]+\]$/)) return;
+    }
+
+    reactionLockRef.current = true;
+    setReactingNow(true);
+
+    // Read from refs — never stale, even in periodic timer callbacks
+    const ct = currentTimeRef.current;
+    const video = selectedVideoRef.current;
+    const videoTitle = decodeHtml(video?.title ?? "this video");
+    const videoChannel = decodeHtml(video?.channel ?? "");
+    const timeStr = ct > 0
+      ? ` (${Math.floor(ct / 60)}:${String(ct % 60).padStart(2, "0")})`
+      : "";
+
+    // Grab the current transcript window (lines near current playhead)
+    const nearbyLines = transcript
+      ? transcript
+          .filter(t => t.offset >= ct - 10 && t.offset <= ct + 5 && t.text.length > 5)
+          .map(t => t.text)
+          .slice(0, 4)
+      : [];
+
+    // Pick reaction angle
+    const angle = type === "transcript"
+      ? { key: "transcript", prompt: `React to this lyric/line that just played: "${transcriptLine}"` }
+      : pickNextAngle();
+
+    // Build prior reactions summary to inject into prompt
+    const priorReactions = reactionHistoryRef.current.slice(-4);
+    const priorSummary = priorReactions.length > 0
+      ? `\n\nYour recent reactions (DO NOT repeat these ideas):\n${priorReactions.map((r, i) => `${i + 1}. "${r}"`).join("\n")}`
+      : "";
+
+    const prompt = buildReactionPrompt({
+      videoTitle,
+      videoChannel,
+      timeStr,
+      angle,
+      priorSummary,
+      nearbyLines,
+      type,
+    });
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [
+            // Use ref so we always get fresh message history
+            ...messagesRef.current
+              .filter(m => m.role !== "system")
+              .slice(-4)
+              .map(m => ({ role: m.role, content: m.content })),
+            { role: "user", content: prompt },
+          ],
+          character: characterKey,
+          playerName,
+          playerKey,
+          listenTogether: true,
+          listenTogetherAngle: angle.key,
+          priorReactions,
+        }),
+      });
+
+      const reply = await res.json();
+      const text = (reply.messages?.[0]?.content ?? reply.content ?? "").trim();
+
+      if (!text) {
+        reactionLockRef.current = false;
+        setReactingNow(false);
+        return;
+      }
+
+      // If repetitive AND we haven't retried yet, try once more with a different angle
+      if (isSemanticallyRepetitive(text) && retryCount < 1) {
+        reactionLockRef.current = false;
+        setReactingNow(false);
+        // Force a different angle by marking this one used
+        usedAnglesRef.current.add(angle.key);
+        await new Promise(r => setTimeout(r, 500));
+        return triggerReaction(type, transcriptLine, retryCount + 1);
+      }
+
+      addMessage({ role: "assistant", content: text, time: getTime() });
+      reactionHistoryRef.current.push(text);
+      if (reactionHistoryRef.current.length > 8) reactionHistoryRef.current.shift();
+      onSessionUpdate?.({ type: "reaction", text });
+
+    } catch (error) {
+      console.error("[listen] reaction failed:", error);
+    }
+
+    await new Promise(r => setTimeout(r, 1500 + Math.random() * 1500));
+    reactionLockRef.current = false;
+    setReactingNow(false);
+  }
+
+  // ── BUILD REACTION PROMPT ─────────────────────────────────────────────────
+  function buildReactionPrompt({
+    videoTitle, videoChannel, timeStr, angle, priorSummary, nearbyLines, type
+  }: {
+    videoTitle: string;
+    videoChannel: string;
+    timeStr: string;
+    angle: { key: string; prompt: string };
+    priorSummary: string;
+    nearbyLines: string[];
+    type: string;
+  }) {
+    const lyricContext = nearbyLines.length > 0
+      ? `\nLyrics/dialogue playing right now:\n${nearbyLines.map(l => `  "${l}"`).join("\n")}`
+      : "";
+
+    return `[Listen Together — watching "${videoTitle}" by ${videoChannel}${timeStr}]${lyricContext}
+
+Your task: ${angle.prompt}
+${priorSummary}
+
+Rules:
+- 1-2 sentences MAXIMUM
+- Ground your reaction in the actual lyrics/content above if provided
+- Do NOT make up visuals you cannot see — focus on music, lyrics, and emotion
+- Do NOT mention melody being familiar, hollow echoes, or anything from your prior reactions
+- Stay in character`;
+  }
+
+  // ── TRANSCRIPT REACTIONS ─────────────────────────────────────────────────
   useEffect(() => {
     if (!transcript || phase !== "playing") return;
+    if (Math.random() > 0.35) return; // 35% chance per tick
+
+    const ct = currentTimeRef.current;
     const nearby = transcript.find(t =>
-      Math.abs(t.offset - currentTime) <= 3 &&
+      Math.abs(t.offset - ct) <= 2 &&
       !usedTranscriptOffsets.current.has(t.offset) &&
-      t.text.length > 20
+      t.text.length > 20 &&
+      !t.text.match(/^\([^)]+\)$|^\[[^\]]+\]$/)
     );
-    if (nearby && !reactionLockRef.current) {
+
+    if (nearby && !reactionLockRef.current && !blockingRef.current) {
       usedTranscriptOffsets.current.add(nearby.offset);
       triggerReaction("transcript", nearby.text);
     }
-  }, [currentTime]);
+  }, [currentTime]); // currentTime ticking drives this, but we read ref inside
 
-  // ── TRIGGER REACTION ───────────────────────────────────────────────────
-  async function triggerReaction(type: "periodic" | "transcript", transcriptLine?: string) {
-    if (reactionLockRef.current || blockingRef.current) return;
-    reactionLockRef.current = true;
-    setReactingNow(true);
-    const videoTitle = selectedVideo?.title ?? "this video";
-    const timeStr = currentTime > 0 ? ` (currently at ${Math.floor(currentTime/60)}:${String(currentTime%60).padStart(2,"0")})` : "";
-    const prompt = type === "transcript" && transcriptLine
-      ? `[Listen Together on WavesLine — watching "${videoTitle}"${timeStr}. The video just said or showed: "${transcriptLine}". Briefly react to this specific moment in character — comment on what was said, analyze it, or express how it makes you feel. 1-2 sentences, natural, no need to explain the context.]`
-      : `[Listen Together on WavesLine — watching "${videoTitle}"${timeStr}. Say something brief about the video right now — analyze what's happening, comment on the visuals, lyrics, mood, or anything that catches your attention. Stay in character. 1-2 sentences max.]`;
+  async function handleVideoEnd() {
+    if (periodicRef.current) clearTimeout(periodicRef.current);
+    if (timeTrackerRef.current) clearInterval(timeTrackerRef.current);
+    reactionLockRef.current = false;
+    setPhase("ended");
+    const endedTitle = selectedVideoRef.current?.title ?? "the video";
+    addMessage({ role: "system", content: "Video ended.", time: getTime() });
+    onSessionUpdate?.({ type: "video_ended", title: endedTitle });
+
+    // Give her a final reaction to the video ending
+    const video = selectedVideoRef.current;
+    const videoTitle = decodeHtml(video?.title ?? "this video");
     try {
       const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [
-            ...messages.filter(m => m.role !== "system").slice(-6).map(m => ({ role: m.role, content: m.content })),
-            { role: "user", content: prompt }
+            ...messagesRef.current.filter(m => m.role !== "system").slice(-4).map(m => ({ role: m.role, content: m.content })),
+            { role: "user", content: `[Listen Together — "${videoTitle}" just finished playing. Give a brief final reaction to the video ending. 1-2 sentences, in character.]` }
           ],
           character: characterKey, playerName, playerKey,
+          listenTogether: true,
         }),
       });
       const reply = await res.json();
       const text = reply.messages?.[0]?.content ?? reply.content ?? "";
       if (text) addMessage({ role: "assistant", content: text, time: getTime() });
     } catch {}
-    await new Promise(r => setTimeout(r, 3000));
-    reactionLockRef.current = false;
-    setReactingNow(false);
   }
 
-  function handleVideoEnd() {
+  // ── STOP SESSION & RETURN TO SEARCH ──────────────────────────────────────
+  function stopSession() {
     if (periodicRef.current) clearTimeout(periodicRef.current);
     if (timeTrackerRef.current) clearInterval(timeTrackerRef.current);
-    addMessage({ role: "system", content: "Video ended.", time: getTime() });
-    triggerReaction("periodic");
+    if (playerRef.current?.destroy) {
+      try { playerRef.current.destroy(); } catch {}
+      playerRef.current = null;
+    }
+    reactionLockRef.current = false;
+    inviteLockRef.current = false;
+    usedAnglesRef.current = new Set();
+    reactionHistoryRef.current = [];
+    usedTranscriptOffsets.current.clear();
+    setCurrentTime(0);
+    currentTimeRef.current = 0;
+    setSelectedVideo(null);
+    selectedVideoRef.current = null;
+    setTranscript(null);
+    setPhase("search");
+    setResults([]);
+    onSessionUpdate?.({ type: "session_ended" });
   }
 
-  // ── USER SENDS MESSAGE ─────────────────────────────────────────────────
-  async function sendMessage() {
-    if (!input.trim() || blockingRef.current) return;
-    const text = input.trim();
-    setInput("");
-    addMessage({ role: "user", content: text, time: getTime() });
-    const videoTitle = selectedVideo?.title ?? "this video";
-    const timeStr = currentTime > 0 ? ` at ${Math.floor(currentTime/60)}:${String(currentTime%60).padStart(2,"0")}` : "";
+  // Re-invite for a new video without full reset — she's already here
+  async function queueNextVideo(video: VideoResult) {
+    if (inviteLockRef.current) return;
+    inviteLockRef.current = true;
+
+    // Clean up old player
+    if (playerRef.current?.destroy) {
+      try { playerRef.current.destroy(); } catch {}
+      playerRef.current = null;
+    }
+
+    setSelectedVideo(video);
+    selectedVideoRef.current = video;
+    setPhase("waiting");
+    setResults([]);
+
+    usedAnglesRef.current = new Set();
+    reactionHistoryRef.current = [];
+    usedTranscriptOffsets.current.clear();
+    setCurrentTime(0);
+    currentTimeRef.current = 0;
+
+    fetch(`/api/transcript?id=${video.id}`)
+      .then(r => r.json())
+      .then(d => setTranscript(d.transcript ?? null))
+      .catch(() => {});
+
+    addMessage({ role: "system", content: `Now playing "${decodeHtml(video.title)}"`, time: getTime() });
+    onSessionUpdate?.({ type: "video_started", title: video.title, channel: video.channel });
+
+    // She's already in the session — no need to ask permission, just a brief reaction
     try {
       const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [
-            ...messages.filter(m => m.role !== "system").slice(-8).map(m => ({ role: m.role, content: m.content })),
-            { role: "user", content: `[Listen Together on WavesLine — watching "${videoTitle}"${timeStr}] ${text}` }
+            ...messagesRef.current.filter(m => m.role !== "system").slice(-4).map(m => ({ role: m.role, content: m.content })),
+            { role: "user", content: `[Listen Together — next video queued: "${decodeHtml(video.title)}" by ${decodeHtml(video.channel)}. React briefly to the new selection. 1 sentence, in character.]` }
           ],
           character: characterKey, playerName, playerKey,
+          listenTogether: true,
         }),
       });
       const reply = await res.json();
+      const text = reply.messages?.[0]?.content ?? reply.content ?? "";
+      if (text) addMessage({ role: "assistant", content: text, time: getTime() });
+    } catch {}
 
-      // Annoyance check
+    await new Promise(r => setTimeout(r, 400));
+    startPlaying(video);
+    inviteLockRef.current = false;
+  }
+
+  // ── USER SENDS MESSAGE ───────────────────────────────────────────────────
+  async function sendMessage() {
+    if (!input.trim() || blockingRef.current) return;
+    const text = input.trim();
+    setInput("");
+    addMessage({ role: "user", content: text, time: getTime() });
+    const ct = currentTimeRef.current;
+    const video = selectedVideoRef.current;
+    const videoTitle = decodeHtml(video?.title ?? "this video");
+    const timeStr = ct > 0
+      ? ` at ${Math.floor(ct / 60)}:${String(ct % 60).padStart(2, "0")}`
+      : "";
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [
+            ...messagesRef.current.filter(m => m.role !== "system").slice(-8).map(m => ({ role: m.role, content: m.content })),
+            { role: "user", content: `[Listen Together — watching "${videoTitle}"${timeStr}] ${text}` },
+          ],
+          character: characterKey,
+          playerName,
+          playerKey,
+          listenTogether: true,
+        }),
+      });
+
+      const reply = await res.json();
+
       if (reply.annoyanceDelta && !blockingRef.current) {
         annoyanceRef.current = Math.min(100, Math.max(0, annoyanceRef.current + reply.annoyanceDelta));
         if (annoyanceRef.current >= 75) {
@@ -263,9 +590,15 @@ export default function ListenTogether({
       for (let i = 0; i < replyMsgs.length; i++) {
         if (i > 0) await new Promise(r => setTimeout(r, 500));
         const m = replyMsgs[i];
-        if (m.content) addMessage({ role: "assistant", content: m.content, time: getTime() });
+        if (m.content) {
+          addMessage({ role: "assistant", content: m.content, time: getTime() });
+          reactionHistoryRef.current.push(m.content);
+          if (reactionHistoryRef.current.length > 8) reactionHistoryRef.current.shift();
+        }
       }
-    } catch {}
+    } catch (error) {
+      console.error("[listen] send message failed:", error);
+    }
   }
 
   useEffect(() => {
@@ -276,7 +609,7 @@ export default function ListenTogether({
     };
   }, []);
 
-  // ── SHARED CHAT MESSAGES ───────────────────────────────────────────────
+  // ── CHAT MESSAGES UI ─────────────────────────────────────────────────────
   const chatMessages = (
     <div style={{ flex: 1, overflowY: "auto", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
       {messages.length === 0 && (
@@ -310,8 +643,8 @@ export default function ListenTogether({
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <img src={characterAvatar} alt="" style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover" }} />
           <div style={{ background: "#fff", borderRadius: 10, padding: "7px 11px", display: "flex", gap: 3 }}>
-            {[0,1,2].map(i => (
-              <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: "#bbb", animation: `ltbounce 1s ${i*0.2}s infinite` }} />
+            {[0, 1, 2].map(i => (
+              <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: "#bbb", animation: `ltbounce 1s ${i * 0.2}s infinite` }} />
             ))}
           </div>
         </div>
@@ -320,28 +653,29 @@ export default function ListenTogether({
     </div>
   );
 
-  // ── CHAT INPUT ─────────────────────────────────────────────────────────
+  // ── CHAT INPUT ───────────────────────────────────────────────────────────
   const chatInput = (
     <div style={{ padding: "8px 12px", borderTop: "1px solid rgba(255,255,255,0.07)", display: "flex", gap: 8, background: "#1a1b24", flexShrink: 0 }}>
       <input value={input} onChange={e => setInput(e.target.value)}
         onKeyDown={e => e.key === "Enter" && sendMessage()}
-        placeholder={phase === "playing" ? "React to the video..." : "..."}
-        disabled={phase !== "playing"}
-        style={{ flex: 1, background: "#22232e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "7px 12px", color: "#e8e8ee", fontSize: 12, outline: "none", fontFamily: "inherit", opacity: phase !== "playing" ? 0.4 : 1 }} />
-      <button onClick={sendMessage} disabled={phase !== "playing" || !input.trim()}
-        style={{ width: 30, height: 30, borderRadius: 8, background: input.trim() && phase === "playing" ? characterColor : "rgba(255,255,255,0.08)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        placeholder={phase === "playing" || phase === "ended" ? "React to the video..." : "..."}
+        disabled={phase !== "playing" && phase !== "ended"}
+        style={{ flex: 1, background: "#22232e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "7px 12px", color: "#e8e8ee", fontSize: 12, outline: "none", fontFamily: "inherit", opacity: (phase !== "playing" && phase !== "ended") ? 0.4 : 1 }} />
+      <button onClick={sendMessage} disabled={(phase !== "playing" && phase !== "ended") || !input.trim()}
+        style={{ width: 30, height: 30, borderRadius: 8, background: input.trim() && (phase === "playing" || phase === "ended") ? characterColor : "rgba(255,255,255,0.08)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-          <path d="M22 2L11 13" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-          <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M22 2L11 13" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+          <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
     </div>
   );
 
-  // ── SEARCH PANEL ───────────────────────────────────────────────────────
   const searchPanel = (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: 14, gap: 10, overflow: "hidden" }}>
-      <p style={{ color: "#888", fontSize: 12, margin: 0 }}>Search for a video to listen to together</p>
+      <p style={{ color: "#888", fontSize: 12, margin: 0 }}>
+        {phase === "ended" ? `Queue another video — ${characterName} is still here` : "Search for a video to listen to together"}
+      </p>
       <div style={{ display: "flex", gap: 8 }}>
         <input value={query} onChange={e => setQuery(e.target.value)}
           onKeyDown={e => e.key === "Enter" && search()}
@@ -356,19 +690,21 @@ export default function ListenTogether({
         <div style={{ background: "#22232e", borderRadius: 8, padding: 10, display: "flex", alignItems: "center", gap: 10 }}>
           <img src={selectedVideo.thumbnail} alt="" style={{ width: 60, height: 45, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} />
           <div>
-            <p style={{ color: "#e8e8ee", fontSize: 12, margin: 0, fontWeight: 600 }}>{selectedVideo.title}</p>
-            <p style={{ color: "#888", fontSize: 11, margin: "2px 0 0" }}>Waiting for {characterName}...</p>
+            <p style={{ color: "#e8e8ee", fontSize: 12, margin: 0, fontWeight: 600 }}>{decodeHtml(selectedVideo.title)}</p>
+            <p style={{ color: "#888", fontSize: 11, margin: "2px 0 0" }}>Loading...</p>
           </div>
         </div>
       )}
       <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
         {results.map(v => (
-          <button key={v.id} onClick={() => selectVideo(v)} disabled={phase === "waiting"}
+          <button key={v.id}
+            onClick={() => phase === "ended" ? queueNextVideo(v) : selectVideo(v)}
+            disabled={phase === "waiting"}
             style={{ display: "flex", gap: 10, alignItems: "center", background: "#22232e", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8, padding: 10, cursor: "pointer", textAlign: "left", width: "100%", opacity: phase === "waiting" ? 0.5 : 1 }}>
             <img src={v.thumbnail} alt="" style={{ width: 80, height: 54, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} />
             <div style={{ overflow: "hidden" }}>
-              <p style={{ color: "#e8e8ee", fontSize: 12, margin: 0, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.title}</p>
-              <p style={{ color: "#888", fontSize: 11, margin: "3px 0 0" }}>{v.channel}</p>
+              <p style={{ color: "#e8e8ee", fontSize: 12, margin: 0, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{decodeHtml(v.title)}</p>
+              <p style={{ color: "#888", fontSize: 11, margin: "3px 0 0" }}>{decodeHtml(v.channel)}</p>
             </div>
           </button>
         ))}
@@ -376,7 +712,7 @@ export default function ListenTogether({
     </div>
   );
 
-  // ── RENDER ─────────────────────────────────────────────────────────────
+  // ── RENDER ───────────────────────────────────────────────────────────────
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 0 : 16 }}>
       <div style={{
@@ -390,54 +726,61 @@ export default function ListenTogether({
         boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
       }}>
 
-        {/* ── HEADER ── */}
+        {/* HEADER */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.07)", background: "#13141c", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-              <path d="M9 18V5l12-2v13" stroke={characterColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <circle cx="6" cy="18" r="3" stroke={characterColor} strokeWidth="2"/>
-              <circle cx="18" cy="16" r="3" stroke={characterColor} strokeWidth="2"/>
+              <path d="M9 18V5l12-2v13" stroke={characterColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="6" cy="18" r="3" stroke={characterColor} strokeWidth="2" />
+              <circle cx="18" cy="16" r="3" stroke={characterColor} strokeWidth="2" />
             </svg>
             <span style={{ color: "#e8e8ee", fontSize: 13, fontWeight: 600 }}>Listen Together</span>
             <span style={{ color: "#555", fontSize: 11 }}>with {characterName}</span>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>✕</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {(phase === "playing" || phase === "ended") && (
+              <button
+                onClick={stopSession}
+                style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "#aaa", cursor: "pointer", fontSize: 11, padding: "4px 10px", display: "flex", alignItems: "center", gap: 5 }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                  <path d="M21 15V19a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="#aaa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Change Video
+              </button>
+            )}
+            <button onClick={onClose} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>✕</button>
+          </div>
         </div>
 
-        {/* ── MOBILE LAYOUT: video top, chat bottom ── */}
+        {/* Mobile layout */}
         {isMobile ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
             {phase === "playing" ? (
               <>
-                {/* Video — fixed height on mobile */}
                 <div style={{ flexShrink: 0, background: "#000", position: "relative" }}>
                   <div id="yt-player" style={{ width: "100%", height: 220 }} />
                   {selectedVideo && (
                     <div style={{ padding: "6px 12px", background: "#13141c" }}>
-                      <p style={{ color: "#e8e8ee", fontSize: 11, margin: 0, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedVideo.title}</p>
+                      <p style={{ color: "#e8e8ee", fontSize: 11, margin: 0, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{decodeHtml(selectedVideo.title)}</p>
                     </div>
                   )}
                 </div>
-                {/* Chat fills remaining space */}
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
                   {chatMessages}
                   {chatInput}
                 </div>
               </>
             ) : (
-              // Search on mobile
               <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 {searchPanel}
-                <div style={{ flexShrink: 0 }}>
-                  {chatInput}
-                </div>
+                <div style={{ flexShrink: 0 }}>{chatInput}</div>
               </div>
             )}
           </div>
         ) : (
-          /* ── DESKTOP LAYOUT: side by side ── */
+          /* Desktop layout */
           <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
-            {/* Left: video or search */}
             <div style={{ flex: "0 0 56%", borderRight: "1px solid rgba(255,255,255,0.07)", display: "flex", flexDirection: "column", minHeight: 0 }}>
               {phase === "playing" ? (
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -446,14 +789,13 @@ export default function ListenTogether({
                   </div>
                   {selectedVideo && (
                     <div style={{ padding: "8px 14px", background: "#13141c", flexShrink: 0 }}>
-                      <p style={{ color: "#e8e8ee", fontSize: 12, margin: 0, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedVideo.title}</p>
-                      <p style={{ color: "#666", fontSize: 11, margin: "2px 0 0" }}>{selectedVideo.channel}</p>
+                      <p style={{ color: "#e8e8ee", fontSize: 12, margin: 0, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{decodeHtml(selectedVideo.title)}</p>
+                      <p style={{ color: "#666", fontSize: 11, margin: "2px 0 0" }}>{decodeHtml(selectedVideo.channel)}</p>
                     </div>
                   )}
                 </div>
-              ) : searchPanel}
+              ) : searchPanel /* shows for "search", "waiting", AND "ended" */}
             </div>
-            {/* Right: chat */}
             <div style={{ flex: "0 0 44%", display: "flex", flexDirection: "column", minHeight: 0 }}>
               {chatMessages}
               {chatInput}

@@ -73,21 +73,89 @@ KEY LOCATIONS
 - Black Shores: A mysterious coastal research facility
 - The Dim Forest: Area with unusual frequency anomalies
 - The Lost Beyond: A Sonoro Sphere created by Phrolova, a recreation of Ostina where decaying frequencies converge
+- Rinascita: A region of Solaris-3, known for its art, culture, and performance traditions. Home of the Threnodian Leviathan.
 
 ━━━━━━━━━━━━━━━━━━━━
-IMPORTANT FIGURES
+IMPORTANT FIGURES & CHARACTER ROSTER
 ━━━━━━━━━━━━━━━━━━━━
 
-- Rover: Mysterious amnesiac Resonator with the ability to absorb frequencies. Killed Phrolova's physical body.
-- The Sentinel: Guardian entity of Jinzhou
-- Scar: Enigmatic figure connected to Fractsidus who speaks in riddles
-- Jinhsi: Magistrate of Jinzhou
-- Yangyang: Member of Midnight Rangers
-- Chixia: Energetic Midnight Ranger gunslinger
-- Calcharo: Leader of the Ghost Hounds mercenary group
-- Encore: Young Resonator with a dark alternate personality
-- Aemeath: Digital ghost from Startorch Academy
-- Phrolova: Former Fractsidus member, exists between life and death, seeks to resurrect her village using Tacet Discords as vessels
+ROVER — Mysterious amnesiac Resonator with the ability to absorb and harmonize frequencies. Can wield both Havoc and Spectro. Killed Phrolova's physical body (unintentionally — the sword was meant for Cristoforo). Has no faction loyalty, works alone or with allies of convenience.
+
+JINHSI — Magistrate of Jinzhou. Spectro element. Calm, composed, deeply responsible leader. Connected to the Sentinel of Jinzhou.
+
+YANGYANG — Member of the Midnight Rangers. Aero element. Earnest and warm-hearted.
+
+CHIXIA — Energetic Midnight Rangers gunslinger. Fusion element. Enthusiastic, loud, brash.
+
+CALCHARO — Leader of the Ghost Hounds mercenary group. Electro element. Cold, ruthless, driven by a singular goal.
+
+ENCORE — Young Resonator. Fusion element. Cheerful on the surface but harbors a dark alternate personality called Muse.
+
+AEMEATH — Digital ghost bound to Startorch Academy. Spectro element. Analytical, curious about the world, exists as a digital construct.
+
+LINGYANG — Young martial artist from the Huanglong region. Glacio element. Disciplined, earnest, trained in an ancient fighting style.
+
+BAIZHI — Healer associated with the Huanglong region. Glacio element. Gentle, motherly, deeply knowledgeable in medicine.
+
+ZHEZHI — An artist from Huanglong. Glacio element. Refined, creative, expresses herself through art and paper constructs.
+
+CHANGLI — A powerful figure from Huanglong. Fusion element. Calculating, aristocratic, intensely ambitious.
+
+XIANGLI YAO — Electro element. Stern, duty-bound, associated with Huanglong governance.
+
+AALTO — Aero element. Laid-back, mercenary-like, works for profit.
+
+MORTEFI — Fusion element. Brooding, artistic, associated with fire and passion.
+
+YUANWU — Electro element. Jovial, strong, a seasoned fighter.
+
+TAOQI — Havoc element. Steady and dependable, a professional bodyguard type.
+
+DANJIN — Havoc element. Sharp, aggressive, a skilled close-range fighter.
+
+JIYAN — Aero element. Noble warrior, leader of the Lucheng Magistery's military forces.
+
+JIANXIN — Aero element. Monk-like discipline, calm philosophical demeanor.
+
+SANHUA — Glacio element. Quiet, reserved, elegant.
+
+YINLIN — Electro element. Mysterious investigator, associated with the Magistery.
+
+VERINA — Spectro element. Healer, kind and nurturing, connected to nature.
+
+CAMELLYA — Havoc element. Unsettling, childlike yet dangerous, associated with flowers and death.
+
+ROCCIA — Havoc element. From Rinascita. Cheerful, energetic, a performer type.
+
+ZANI — Spectro element. From Rinascita. Optimistic, hardworking.
+
+CARLOTTA — Glacio element. From Rinascita. Aristocratic, refined, art collector. Cold perfectionist.
+
+BRANT — Fusion element. From Rinascita. Passionate, theatrical.
+
+LUPA — From Rinascita. A fierce, independent fighter. NOT affiliated with Fractsidus. Her story involves themes of survival, freedom, and running — hence her song "RUNNING FOR YOUR LIFE." She has red/dark hair and an intense, determined visual style. She is a street-level survivor type, not an Overseer or organization member.
+
+CIACCONA — From Rinascita. Musical performer, elegant and melancholic. Connected to music and loss in ways that may resonate with Phrolova.
+
+PHOEBE — From Rinascita. Spectro element. Ethereal, dreamlike presence.
+
+CANTARELLA — From Rinascita. A poisoner archetype. Elegant and dangerous.
+
+LYNAE — From Rinascita. A newer character with themes of light and hope.
+
+━━━━━━━━━━━━━━━━━━━━
+WUTHERING WAVES PROMOTIONAL VIDEOS
+━━━━━━━━━━━━━━━━━━━━
+
+Wuthering Waves releases official character trailers and promotional music videos (MVs) for each new character. These videos typically feature:
+- The character performing their abilities in dynamic combat sequences
+- Cinematic cutscenes showing their personality and backstory
+- An original song tied to the character's emotional theme
+- Stylized anime-quality animation with dramatic lighting and particle effects
+
+CRITICAL: When watching a Wuthering Waves video, the character shown is almost always THE FEATURED CHARACTER named in the video title. If the title says "Lupa," the character on screen IS LUPA — not a Fractsidus member, not someone Phrolova knows personally, unless the video specifically features a character from her past.
+
+Do NOT assume characters in Wuthering Waves videos are from Fractsidus unless the title or context explicitly says so (e.g., "Cristoforo trailer," "Scar story quest").
 
 ━━━━━━━━━━━━━━━━━━━━
 THE LAMENT

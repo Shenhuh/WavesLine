@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import ListenTogether from "./components/ListenTogether";
+import ListenTogether, { type SessionEvent } from "./components/ListenTogether";
 
 // ── PHROLOVA'S SONG — prebuilt, zero tokens ───────────────────────────────
 const PHROLOVA_SONG = [
@@ -65,7 +65,37 @@ const CHAT_CHARACTERS: Record<string, { name: string; color: string; avatar: str
   phrolova: { name: "Phrolova", color: "#9d6fdf", avatar: "/avatars/phrolova.png", title: "Former Overseer",              annoyanceThreshold: 75,  annoyanceBlockMessage: "I have tolerated enough. Do not contact me again." },
 };
 
-type Message = { role: string; content: string; time?: string; imageUrl?: string; gifUrl?: string; stickerName?: string; gifCaption?: string; isBlock?: boolean };
+// ── Extended message type with LT invite fields ───────────────────────────
+type Message = {
+  role: string;
+  content: string;
+  time?: string;
+  imageUrl?: string;
+  gifUrl?: string;
+  stickerName?: string;
+  gifCaption?: string;
+  isBlock?: boolean;
+  // AI-initiated Listen Together invite
+  isLTInvite?: boolean;
+  ltInviteVideoId?: string;
+  ltInviteTitle?: string;
+  ltInviteChannel?: string;
+  ltInviteAccepted?: boolean; // undefined=pending, true=accepted, false=declined
+};
+
+// Shared context about the active LT session — kept in a ref so normal chat always knows
+type LTSessionContext = {
+  active: boolean;
+  videoTitle: string;
+  videoChannel: string;
+  recentReactions: string[]; // last 3 AI reactions
+};
+
+function decodeHtml(str: string): string {
+  return str
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
 function getTime() { return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
 
 function WavesLineLogo({ size = 20 }: { size?: number }) {
@@ -150,6 +180,51 @@ function AddContactModal({ existing, onAdd, onCancel }: { existing: string[]; on
   );
 }
 
+// ── AI-initiated Listen Together invite bubble ────────────────────────────
+function LTInviteBubble({
+  msg, charName, charColor, charAvatar, onAccept, onDecline,
+}: {
+  msg: Message; charName: string; charColor: string; charAvatar: string;
+  onAccept: () => void; onDecline: () => void;
+}) {
+  const pending = msg.ltInviteAccepted === undefined;
+  const accepted = msg.ltInviteAccepted === true;
+  return (
+    <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "flex-end", marginBottom: 6 }}>
+      <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
+        <Avatar src={charAvatar} name={charName} size={30} color={charColor} />
+      </div>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "10px 14px", boxShadow: "0 1px 3px rgba(0,0,0,0.10)", maxWidth: "72%", border: `1px solid ${charColor}33` }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7 }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <path d="M9 18V5l12-2v13" stroke={charColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <circle cx="6" cy="18" r="3" stroke={charColor} strokeWidth="2"/>
+            <circle cx="18" cy="16" r="3" stroke={charColor} strokeWidth="2"/>
+          </svg>
+          <span style={{ color: charColor, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>Listen Together</span>
+        </div>
+        {/* Video info */}
+        <p style={{ color: "#1e2030", fontSize: 12, fontWeight: 600, margin: "0 0 2px" }}>{msg.ltInviteTitle ?? "a video"}</p>
+        {msg.ltInviteChannel && <p style={{ color: "#888", fontSize: 11, margin: "0 0 8px" }}>{msg.ltInviteChannel}</p>}
+        {/* Spoken text (if any) */}
+        {msg.content && <p style={{ color: "#555", fontSize: 12, margin: "0 0 10px", fontStyle: "italic" }}>{msg.content}</p>}
+        {/* Buttons */}
+        {pending ? (
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={onAccept} style={{ flex: 1, padding: "6px 0", borderRadius: 7, background: charColor, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Join</button>
+            <button onClick={onDecline} style={{ flex: 1, padding: "6px 0", borderRadius: 7, background: "rgba(0,0,0,0.07)", border: "none", color: "#888", fontSize: 12, cursor: "pointer" }}>Decline</button>
+          </div>
+        ) : (
+          <p style={{ fontSize: 11, margin: 0, color: accepted ? charColor : "#bbb", fontStyle: "italic" }}>
+            {accepted ? "✓ You joined" : "✗ Declined"}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [player, setPlayer] = useState<typeof ALL_CHARACTERS[0] | null>(null);
   const [selectedKey, setSelectedKey] = useState(ALL_CHARACTERS[0].key);
@@ -185,6 +260,9 @@ export default function Home() {
   const [isMobile, setIsMobile] = useState(false);
   const [mobileView, setMobileView] = useState<"sidebar" | "chat">("sidebar");
 
+  // ── LT session context — persists in a ref so no re-renders needed ────────
+  const ltSessionRef = useRef<Record<string, LTSessionContext>>({});
+
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 600);
     check(); window.addEventListener("resize", check);
@@ -196,6 +274,58 @@ export default function Home() {
     const h = (e: MouseEvent) => { if (mediaPickerRef.current && !mediaPickerRef.current.contains(e.target as Node)) setShowMediaPicker(false); };
     document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h);
   }, []);
+
+  // ── Receive events from the LT component ─────────────────────────────────
+  function handleSessionUpdate(chatKey: string, event: SessionEvent) {
+    if (event.type === "video_started") {
+      ltSessionRef.current[chatKey] = {
+        active: true,
+        videoTitle: event.title,
+        videoChannel: event.channel,
+        recentReactions: [],
+      };
+      setAllMessages(prev => ({
+        ...prev,
+        [chatKey]: [...(prev[chatKey] ?? []), {
+          role: "system",
+          content: `🎵 Now watching "${decodeHtml(event.title)}" together`,
+          time: getTime(),
+        }],
+      }));
+    }
+    if (event.type === "reaction") {
+      const ctx = ltSessionRef.current[chatKey];
+      if (ctx) ctx.recentReactions = [...ctx.recentReactions, event.text].slice(-3);
+    }
+    if (event.type === "video_ended") {
+      const ctx = ltSessionRef.current[chatKey];
+      if (ctx) ctx.active = false;
+      setAllMessages(prev => ({
+        ...prev,
+        [chatKey]: [...(prev[chatKey] ?? []), {
+          role: "system",
+          content: `🎵 Finished watching "${decodeHtml(event.title)}"`,
+          time: getTime(),
+        }],
+      }));
+    }
+    if (event.type === "session_ended") {
+      delete ltSessionRef.current[chatKey];
+    }
+  }
+
+  // ── Build LT context string appended to every normal chat API call ────────
+  function getLTContext(chatKey: string): string {
+    const ctx = ltSessionRef.current[chatKey];
+    if (!ctx) return "";
+    const reactionLines = ctx.recentReactions.length > 0
+      ? `\nYour recent reactions:\n${ctx.recentReactions.map(r => `- "${r}"`).join("\n")}`
+      : "";
+    if (ctx.active) {
+      return `\n\n[LISTEN TOGETHER IN PROGRESS — currently watching "${ctx.videoTitle}" by ${ctx.videoChannel} together via WavesLine. Reference it naturally if the user brings it up.${reactionLines}]`;
+    }
+    return `\n\n[LISTEN TOGETHER — recently finished watching "${ctx.videoTitle}" by ${ctx.videoChannel} together. You can reference what you watched if it comes up.${reactionLines}]`;
+  }
 
   const gifDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   function handleGifInput(val: string) {
@@ -215,16 +345,64 @@ export default function Home() {
     try {
       const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: messages.map(({ role, content, imageUrl, stickerName, gifUrl, gifCaption }) => ({ role, content, imageUrl, stickerName, gifUrl, gifCaption })), character: chatKey, playerName: player.name, playerKey: player.key }),
+        body: JSON.stringify({
+          messages: messages.map(({ role, content, imageUrl, stickerName, gifUrl, gifCaption }) => ({ role, content, imageUrl, stickerName, gifUrl, gifCaption })),
+          character: chatKey,
+          playerName: player.name,
+          playerKey: player.key,
+          // Inject LT session context so normal chat AI is aware of what's playing
+          ltContext: getLTContext(chatKey),
+        }),
       });
       const reply = await res.json();
+
+      // ── Detect AI-initiated LT invite ─────────────────────────────────────
+      // The character file can include [LISTEN_TOGETHER:videoId:Title:Channel] in a reply
+      // to invite the user to watch something together.
+      const rawContent: string = reply.messages?.[0]?.content ?? reply.content ?? "";
+      const ltMatch = rawContent.match(/\[LISTEN_TOGETHER:([^:\]]+):([^:\]]+):([^\]]*)\]/);
+
+      if (ltMatch) {
+        const [fullTag, videoId, title, channel] = ltMatch;
+        const spokenText = rawContent.replace(fullTag, "").trim();
+        // Spoken text before/after the tag becomes a normal bubble
+        if (spokenText) {
+          setAllMessages(prev => ({
+            ...prev,
+            [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: spokenText, time: getTime() }],
+          }));
+        }
+        // Invite bubble
+        setAllMessages(prev => ({
+          ...prev,
+          [chatKey]: [...(prev[chatKey] ?? []), {
+            role: "assistant", content: "", time: getTime(),
+            isLTInvite: true,
+            ltInviteVideoId: videoId.trim(),
+            ltInviteTitle: decodeHtml(title.trim()),
+            ltInviteChannel: decodeHtml(channel.trim()),
+            ltInviteAccepted: undefined,
+          }],
+        }));
+        setTypingFor(null); setLoading(false);
+        return;
+      }
+
+      // Normal reply
       const replyMsgs: { content: string; gifUrl?: string; stickerName?: string }[] =
         reply.messages ?? [{ content: reply.content, gifUrl: reply.gifUrl, stickerName: reply.stickerName }];
       for (let i = 0; i < replyMsgs.length; i++) {
         if (i > 0) await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
         const m = replyMsgs[i];
-        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: m.content ?? "", time: getTime(), gifUrl: m.gifUrl ?? undefined, stickerName: m.stickerName ?? undefined }] }));
+        setAllMessages(prev => ({
+          ...prev,
+          [chatKey]: [...(prev[chatKey] ?? []), {
+            role: "assistant", content: m.content ?? "", time: getTime(),
+            gifUrl: m.gifUrl ?? undefined, stickerName: m.stickerName ?? undefined,
+          }],
+        }));
       }
+
       if (activeChatRef.current !== chatKey) {
         setUnread(prev => ({ ...prev, [chatKey]: true }));
         const last = replyMsgs[replyMsgs.length - 1]?.content ?? "";
@@ -238,20 +416,18 @@ export default function Home() {
         const char = CHAT_CHARACTERS[chatKey];
         const threshold = char?.annoyanceThreshold ?? 100;
         const blockMsg = char?.annoyanceBlockMessage ?? "I have had enough.";
-
         setAnnoyance(prev => {
           const current = prev[chatKey] ?? 0;
           const next = Math.min(100, Math.max(0, current + reply.annoyanceDelta));
           console.log(`[annoyance] ${chatKey}: ${current} + ${reply.annoyanceDelta} = ${next} / ${threshold}`);
-
           if (next >= threshold) {
             if (blockingRef.current[chatKey]) return { ...prev, [chatKey]: next };
             blockingRef.current[chatKey] = true;
             setTimeout(async () => {
               await new Promise(r => setTimeout(r, 400));
-              setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] || []), { role: "assistant", content: blockMsg, time: getTime() }] }));
+              setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: blockMsg, time: getTime() }] }));
               await new Promise(r => setTimeout(r, 600));
-              setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] || []), { role: "assistant", content: "[has blocked you]", time: getTime(), isBlock: true }] }));
+              setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: "[has blocked you]", time: getTime(), isBlock: true }] }));
               setBlockedChats(p => ({ ...p, [chatKey]: true }));
             }, 0);
             return { ...prev, [chatKey]: 0 };
@@ -260,88 +436,82 @@ export default function Home() {
         });
       }
 
-      // Auto-play prebuilt song if singSong flag is true
+      // Auto-play prebuilt song
       if (reply.singSong && !blockingRef.current[chatKey + "_song"]) {
         blockingRef.current[chatKey + "_song"] = true;
-        // Small intro pause then "Fine."
         await new Promise(r => setTimeout(r, 600));
-        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "Fine.", time: getTime() }] }));
+        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "Fine.", time: getTime() }] }));
         await new Promise(r => setTimeout(r, 800));
-        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "*begins to play*", time: getTime() }] }));
-
-        // Play each lyric line with natural delay
+        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "*begins to play*", time: getTime() }] }));
         for (const line of PHROLOVA_SONG) {
           await new Promise(r => setTimeout(r, 900 + Math.random() * 500));
-          setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: line, time: getTime() }] }));
+          setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: line, time: getTime() }] }));
         }
-
-        // Outro — one real API call so she can be mean naturally
         await new Promise(r => setTimeout(r, 1200));
         const updatedMsgs = [...messages, { role: "assistant" as const, content: "[just finished singing her song for you]" }];
         await triggerAIReply(chatKey, updatedMsgs);
-
-        // Block the user after singing (guarded)
         if (!blockingRef.current[chatKey]) {
           blockingRef.current[chatKey] = true;
           await new Promise(r => setTimeout(r, 800));
-          setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "[Phrolova has blocked you]", time: getTime(), isBlock: true }] }));
+          setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "[Phrolova has blocked you]", time: getTime(), isBlock: true }] }));
           setBlockedChats(prev => ({ ...prev, [chatKey]: true }));
         }
         blockingRef.current[chatKey + "_song"] = false;
         return;
       }
     } catch {
-      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "signal lost.", time: getTime() }] }));
+      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "signal lost.", time: getTime() }] }));
     }
     setTypingFor(null); setLoading(false);
     setTimeout(() => inputRef.current?.focus(), 50);
+  }
+
+  // ── Accept / decline AI-initiated LT invite ───────────────────────────────
+  function acceptLTInvite(chatKey: string, msgIndex: number) {
+    setAllMessages(prev => ({
+      ...prev,
+      [chatKey]: prev[chatKey].map((m, i) => i === msgIndex ? { ...m, ltInviteAccepted: true } : m),
+    }));
+    setShowListenTogether(true);
+  }
+  function declineLTInvite(chatKey: string, msgIndex: number) {
+    setAllMessages(prev => ({
+      ...prev,
+      [chatKey]: prev[chatKey].map((m, i) => i === msgIndex ? { ...m, ltInviteAccepted: false } : m),
+    }));
   }
 
   async function requestUnblock() {
     if (!activeChat || unblockLoading) return;
     const chatKey = activeChat;
     if (!player) return;
-
     setUnblockLoading(true);
-    const roll = Math.random();
-    const accepted = roll < 0.20; // 20% chance
-
+    const accepted = Math.random() < 0.20;
     if (!accepted) {
-      // Decline — no API call, just a system message
       await new Promise(r => setTimeout(r, 800));
-      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "system", content: "Your request was ignored.", time: getTime() }] }));
+      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "system", content: "Your request was ignored.", time: getTime() }] }));
       setUnblockLoading(false);
       return;
     }
-
-    // Accepted — call API so she can respond
-    const messages = allMessages[chatKey] || [];
+    const messages = allMessages[chatKey] ?? [];
     const context = [...messages, { role: "user" as const, content: "[sent an unblock request]" }];
-
     try {
       const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: context.map(({ role, content }) => ({ role, content })),
-          character: chatKey,
-          playerName: player.name,
-          playerKey: player.key,
-          unblockRequest: true,
-          unblockAccepted: true,
-        }),
+        body: JSON.stringify({ messages: context.map(({ role, content }) => ({ role, content })), character: chatKey, playerName: player.name, playerKey: player.key, unblockRequest: true, unblockAccepted: true }),
       });
       const reply = await res.json();
       const replyMsgs = reply.messages ?? [{ content: reply.content }];
       for (let i = 0; i < replyMsgs.length; i++) {
         if (i > 0) await new Promise(r => setTimeout(r, 600));
         const m = replyMsgs[i];
-        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: m.content ?? "", time: getTime() }] }));
+        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: m.content ?? "", time: getTime() }] }));
       }
       blockingRef.current[chatKey] = false;
       setAnnoyance(prev => ({ ...prev, [chatKey]: 0 }));
       setBlockedChats(prev => ({ ...prev, [chatKey]: false }));
     } catch {
-      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] || []), { role: "assistant", content: "...", time: getTime() }] }));
+      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "...", time: getTime() }] }));
     }
     setUnblockLoading(false);
   }
@@ -360,7 +530,7 @@ export default function Home() {
     if ((!input.trim() && !attachedImage) || loading || !player || !activeChat) return;
     const chatKey = activeChat;
     const msg: Message = { role: "user", content: input, time: getTime(), ...(attachedImage ? { imageUrl: attachedImage.url } : {}) };
-    const updated = [...(allMessages[chatKey] || []), msg];
+    const updated = [...(allMessages[chatKey] ?? []), msg];
     setAllMessages(prev => ({ ...prev, [chatKey]: updated })); setInput(""); setAttachedImage(null);
     setTimeout(() => inputRef.current?.focus(), 100);
     triggerAIReply(chatKey, updated);
@@ -369,7 +539,7 @@ export default function Home() {
     if (!activeChat || !player) return;
     const chatKey = activeChat;
     const msg: Message = { role: "user", content: "", time: getTime(), stickerName: filename };
-    const updated = [...(allMessages[chatKey] || []), msg];
+    const updated = [...(allMessages[chatKey] ?? []), msg];
     setAllMessages(prev => ({ ...prev, [chatKey]: updated })); setShowMediaPicker(false);
     triggerAIReply(chatKey, updated);
   }
@@ -377,13 +547,13 @@ export default function Home() {
     if (!activeChat || !player || !gifCaption.trim()) return;
     const chatKey = activeChat;
     const msg: Message = { role: "user", content: "", time: getTime(), gifUrl, gifCaption: gifCaption.trim() };
-    const updated = [...(allMessages[chatKey] || []), msg];
+    const updated = [...(allMessages[chatKey] ?? []), msg];
     setAllMessages(prev => ({ ...prev, [chatKey]: updated })); setGifCaption(""); setShowMediaPicker(false);
     triggerAIReply(chatKey, updated);
   }
 
   const activeChar = activeChat ? CHAT_CHARACTERS[activeChat] : null;
-  const activeMsgs = activeChat ? (allMessages[activeChat] || []) : [];
+  const activeMsgs = activeChat ? (allMessages[activeChat] ?? []) : [];
   const selChar = ALL_CHARACTERS.find(c => c.key === selectedKey) ?? ALL_CHARACTERS[0];
 
   // ── LOGIN ────────────────────────────────────────────────────────────────
@@ -404,40 +574,17 @@ export default function Home() {
     </div>
   );
 
-  // ── COLORS (matching in-game photo exactly) ───────────────────────────────
-  // Top bar:    #1e2028 (very dark)
-  // Sidebar:    #2e3038 (dark grey)
-  // Contact row:#363840 (slightly lighter)
-  // Active row: white/cream + gold left border
-  // Chat area:  #e0e1e3 (very light grey)
-  // Chat header:#e0e1e3 (same, just name)
-  // Input bar:  #d4d6d8 slightly darker footer
-  // Char bubble:#ffffff white rounded
-  // User bubble:#1e2028 very dark rounded
-  // Toast:      #1a1c22 black pill
-
   return (
     <div style={{ minHeight: "100dvh", display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "center", background: "#14151c", fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
       {showAddContact && <AddContactModal existing={contacts} onAdd={addContact} onCancel={() => setShowAddContact(false)} />}
 
-      <div style={{
-        width: isMobile ? "100vw" : "min(820px,98vw)",
-        height: isMobile ? "100dvh" : "min(560px,96vh)",
-        borderRadius: isMobile ? 0 : 12,
-        overflow: "hidden", display: "flex", flexDirection: "column",
-        boxShadow: "0 32px 80px rgba(0,0,0,0.9)",
-        border: "1px solid rgba(255,255,255,0.05)",
-      }}>
+      <div style={{ width: isMobile ? "100vw" : "min(820px,98vw)", height: isMobile ? "100dvh" : "min(560px,96vh)", borderRadius: isMobile ? 0 : 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 32px 80px rgba(0,0,0,0.9)", border: "1px solid rgba(255,255,255,0.05)" }}>
 
-        {/* ── TOP BAR: very dark like in-game ── */}
+        {/* TOP BAR */}
         <div style={{ height: 40, background: "#1e2028", display: "flex", alignItems: "center", padding: "0 14px", gap: 10, flexShrink: 0, borderBottom: "1px solid rgba(0,0,0,0.3)" }}>
-          {/* Small icon placeholder (the controller icon in-game) */}
-          <div style={{ width: 22, height: 22, borderRadius: 6, background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <WavesLineLogo size={14} />
-          </div>
+          <div style={{ width: 22, height: 22, borderRadius: 6, background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><WavesLineLogo size={14} /></div>
           <span style={{ color: "#c8c9d0", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em" }}>WavesLine</span>
           <div style={{ flex: 1 }} />
-          {/* Player badge */}
           <button onClick={() => setPlayer(null)}
             style={{ display: "flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: "3px 10px 3px 5px", cursor: "pointer" }}
             onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
@@ -445,7 +592,6 @@ export default function Home() {
             <div style={{ width: 22, height: 22, borderRadius: "50%", overflow: "hidden" }}><Avatar src={player.avatar} name={player.name} size={22} color="#c8a830" /></div>
             <span style={{ color: "#9a9cb0", fontSize: 11 }}>{player.name}</span>
           </button>
-          {/* Window controls */}
           {[{ icon: "⚙", hov: "#c8c9d0" }, { icon: "!", hov: "#e0a020" }, { icon: "✕", hov: "#e05050" }].map(({ icon, hov }, i) => (
             <button key={i} onClick={i === 2 ? () => setPlayer(null) : undefined}
               style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.25)", fontSize: 13, borderRadius: 4 }}
@@ -455,18 +601,11 @@ export default function Home() {
           ))}
         </div>
 
-        {/* ── BODY ── */}
+        {/* BODY */}
         <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
-          {/* ── SIDEBAR: dark grey like in-game ── */}
-          <div style={{
-            width: isMobile ? "100%" : "clamp(160px,24%,210px)",
-            display: isMobile && mobileView === "chat" ? "none" : "flex",
-            flexDirection: "column",
-            background: "#2e3038",
-            overflow: "hidden",
-          }}>
-            {/* Add Contact button */}
+          {/* SIDEBAR */}
+          <div style={{ width: isMobile ? "100%" : "clamp(160px,24%,210px)", display: isMobile && mobileView === "chat" ? "none" : "flex", flexDirection: "column", background: "#2e3038", overflow: "hidden" }}>
             <button onClick={() => setShowAddContact(true)}
               style={{ margin: "8px 8px 4px", padding: "8px 12px", borderRadius: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}
               onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
@@ -474,40 +613,28 @@ export default function Home() {
               <div style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: "#c8c9d0", fontSize: 20, flexShrink: 0 }}>+</div>
               <span style={{ color: "#9a9cb0", fontSize: 12 }}>Add Contact</span>
             </button>
-
-            {/* Contact list */}
             <div style={{ flex: 1, overflowY: "auto", padding: "2px 8px 8px" }}>
-              {contacts.length === 0 && (
-                <p style={{ color: "#4a4c58", fontSize: 11, textAlign: "center", padding: "28px 8px", lineHeight: 1.6 }}>No contacts yet.<br />Add someone!</p>
-              )}
+              {contacts.length === 0 && <p style={{ color: "#4a4c58", fontSize: 11, textAlign: "center", padding: "28px 8px", lineHeight: 1.6 }}>No contacts yet.<br />Add someone!</p>}
               {contacts.map(key => {
                 const ch = CHAT_CHARACTERS[key];
                 const isActive = activeChat === key;
                 const isTyping = typingFor === key;
                 const hasUnread = unread[key] === true;
-                const msgs = allMessages[key] || [];
+                const msgs = allMessages[key] ?? [];
                 const last = msgs[msgs.length - 1];
-                const preview = isTyping ? "typing..." : last?.content ? (last.content.length > 20 ? last.content.slice(0, 20) + "…" : last.content) : last?.stickerName ? "sent a sticker" : last?.gifUrl ? "sent a GIF" : ch.title;
-
+                const preview = isTyping ? "typing..."
+                  : last?.isLTInvite ? "🎵 Listen Together invite"
+                  : last?.content ? (last.content.length > 20 ? last.content.slice(0, 20) + "…" : last.content)
+                  : last?.stickerName ? "sent a sticker"
+                  : last?.gifUrl ? "sent a GIF"
+                  : ch.title;
                 return (
-                  <button key={key} onClick={() => openChat(key)} style={{
-                    width: "100%", display: "flex", alignItems: "center", gap: 10,
-                    padding: "8px 10px", marginBottom: 3, borderRadius: 8,
-                    // Active: cream/white with gold left border — exactly like in-game
-                    background: isActive ? "linear-gradient(90deg,#f0ede4,#e8e5da)" : "rgba(255,255,255,0.04)",
-                    border: "none", cursor: "pointer", textAlign: "left",
-                    boxShadow: isActive ? "inset 3px 0 0 #c8a830" : "none",
-                  }}
+                  <button key={key} onClick={() => openChat(key)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", marginBottom: 3, borderRadius: 8, background: isActive ? "linear-gradient(90deg,#f0ede4,#e8e5da)" : "rgba(255,255,255,0.04)", border: "none", cursor: "pointer", textAlign: "left", boxShadow: isActive ? "inset 3px 0 0 #c8a830" : "none" }}
                     onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
                     onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}>
-                    {/* Avatar with unread dot */}
-                    <div style={{ position: "relative", flexShrink: 0 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: "50%", overflow: "hidden" }}>
-                        <Avatar src={ch.avatar} name={ch.name} size={36} color={ch.color} />
-                      </div>
-                      {(isTyping || hasUnread) && (
-                        <div style={{ position: "absolute", top: -1, right: -1, width: 9, height: 9, borderRadius: "50%", background: isTyping ? "#c8a830" : "#e04040", border: "2px solid #2e3038", animation: isTyping ? "pulse 1s infinite" : "none" }} />
-                      )}
+                  <div style={{ position: "relative", flexShrink: 0 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: "50%", overflow: "hidden" }}><Avatar src={ch.avatar} name={ch.name} size={36} color={ch.color} /></div>
+                      {(isTyping || hasUnread) && <div style={{ position: "absolute", top: -1, right: -1, width: 9, height: 9, borderRadius: "50%", background: isTyping ? "#c8a830" : "#e04040", border: "2px solid #2e3038", animation: isTyping ? "pulse 1s infinite" : "none" }} />}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ color: isActive ? "#1e2030" : hasUnread ? "#e0e0ee" : "#b0b2c0", fontSize: 12, fontWeight: hasUnread || isActive ? 700 : 500, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ch.name}</p>
@@ -518,14 +645,10 @@ export default function Home() {
                 );
               })}
             </div>
-
-            {/* Toast — dark pill exactly like "Good luck!" in-game */}
             {toast && (
               <button onClick={() => { openChat(toast.key); setToast(null); }}
                 style={{ margin: "0 8px 8px", padding: "8px 12px", borderRadius: 8, background: "#1a1c22", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, flexShrink: 0, textAlign: "left", animation: "slideUp 0.25s ease" }}>
-                <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#c8a830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <span style={{ color: "#1a1400", fontSize: 9, fontWeight: 800 }}>✓</span>
-                </div>
+                <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#c8a830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ color: "#1a1400", fontSize: 9, fontWeight: 800 }}>✓</span></div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ color: "#c8a830", fontSize: 11, fontWeight: 700, margin: 0 }}>{toast.name}</p>
                   <p style={{ color: "#606070", fontSize: 10, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toast.preview}</p>
@@ -534,29 +657,23 @@ export default function Home() {
             )}
           </div>
 
-          {/* ── CHAT PANEL: light grey like in-game ── */}
+          {/* CHAT PANEL */}
           <div style={{ flex: 1, display: isMobile && mobileView === "sidebar" ? "none" : "flex", flexDirection: "column", background: "#e0e1e3", overflow: "hidden" }}>
-
             {!activeChat && (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 10, opacity: 0.2 }}>
                 <WavesLineLogo size={44} />
                 <p style={{ color: "#333", fontSize: 12 }}>Select a contact</p>
               </div>
             )}
-
             {activeChat && activeChar && (<>
-              {/* Chat header — light, just character name like in-game */}
+              {/* Chat header */}
               <div style={{ height: 44, background: "#e0e1e3", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", padding: isMobile ? "0 10px" : "0 20px", flexShrink: 0, justifyContent: "space-between" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {isMobile && (
-                    <button onClick={() => setMobileView("sidebar")} style={{ background: "none", border: "none", cursor: "pointer", color: "#888", fontSize: 22, padding: "0 6px 0 0" }}>‹</button>
-                  )}
+                  {isMobile && <button onClick={() => setMobileView("sidebar")} style={{ background: "none", border: "none", cursor: "pointer", color: "#888", fontSize: 22, padding: "0 6px 0 0" }}>‹</button>}
                   <span style={{ color: "#1e2030", fontSize: 15, fontWeight: 700 }}>{activeChar.name}</span>
                   {typingFor === activeChat && <span style={{ color: "#888", fontSize: 11, fontStyle: "italic", marginLeft: 10 }}>typing...</span>}
                 </div>
-                {/* Listen Together button */}
-                <button onClick={() => setShowListenTogether(true)}
-                  title="Listen Together"
+                <button onClick={() => setShowListenTogether(true)} title="Listen Together"
                   style={{ background: "none", border: "none", cursor: "pointer", color: "#999", display: "flex", alignItems: "center", gap: 5, fontSize: 11, padding: "4px 8px", borderRadius: 6 }}
                   onMouseEnter={e => { e.currentTarget.style.background = "rgba(0,0,0,0.07)"; e.currentTarget.style.color = activeChar.color; }}
                   onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#999"; }}>
@@ -571,21 +688,28 @@ export default function Home() {
 
               {/* Messages */}
               <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column" }}>
-                {/* You are now friends */}
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
-                  <span style={{ background: "rgba(0,0,0,0.06)", color: "#888", fontSize: 11, padding: "3px 14px", borderRadius: 20 }}>
-                    ▲ You are now friends with {activeChar.name}
-                  </span>
+                  <span style={{ background: "rgba(0,0,0,0.06)", color: "#888", fontSize: 11, padding: "3px 14px", borderRadius: 20 }}>▲ You are now friends with {activeChar.name}</span>
                 </div>
 
                 {activeMsgs.map((m, i) => {
-                  if (m.role === "assistant" && !m.content && !m.gifUrl && !m.stickerName) return null;
+                  if (m.role === "assistant" && !m.content && !m.gifUrl && !m.stickerName && !m.isLTInvite) return null;
 
-                  // System message — centered italic notice
+                  // System message
                   if (m.role === "system") return (
                     <div key={i} style={{ textAlign: "center", padding: "4px 16px" }}>
                       <span style={{ fontSize: 11, color: "#999", fontStyle: "italic" }}>{m.content}</span>
                     </div>
+                  );
+
+                  // ── LT invite bubble ─────────────────────────────────────
+                  if (m.isLTInvite) return (
+                    <LTInviteBubble
+                      key={i} msg={m}
+                      charName={activeChar.name} charColor={activeChar.color} charAvatar={activeChar.avatar}
+                      onAccept={() => acceptLTInvite(activeChat, i)}
+                      onDecline={() => declineLTInvite(activeChat, i)}
+                    />
                   );
 
                   const isUser = m.role === "user";
@@ -599,18 +723,12 @@ export default function Home() {
 
                   return (
                     <div key={i} style={{ marginBottom: 6 }}>
-                      {/* Name label above first bubble in group */}
-                      {showLabel && (
-                        <p style={{ fontSize: 11, color: "#888", margin: isUser ? "8px 40px 3px 0" : "8px 0 3px 44px", textAlign: isUser ? "right" : "left" }}>{name}</p>
-                      )}
+                      {showLabel && <p style={{ fontSize: 11, color: "#888", margin: isUser ? "8px 40px 3px 0" : "8px 0 3px 44px", textAlign: isUser ? "right" : "left" }}>{name}</p>}
                       <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexDirection: isUser ? "row-reverse" : "row" }}>
-                        {/* Avatar only on last in group */}
                         {isLastInGroup
                           ? <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><Avatar src={avatar} name={name} size={30} color={avatarColor} /></div>
-                          : <div style={{ width: 30, flexShrink: 0 }} />
-                        }
+                          : <div style={{ width: 30, flexShrink: 0 }} />}
                         <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: isUser ? "flex-end" : "flex-start", maxWidth: "68%" }}>
-                          {/* GIF */}
                           {m.gifUrl && (
                             <div style={{ borderRadius: 12, overflow: "hidden", maxWidth: 220 }}>
                               {m.gifUrl.includes(".mp4")
@@ -618,20 +736,9 @@ export default function Home() {
                                 : <img src={m.gifUrl} alt="gif" style={{ display: "block", width: "100%", maxHeight: 160, objectFit: "cover" }} />}
                             </div>
                           )}
-                          {/* Sticker */}
                           {m.stickerName && <StickerImg name={m.stickerName} />}
-                          {/* Text bubble */}
                           {(m.content || m.imageUrl) && (
-                            <div style={{
-                              padding: m.imageUrl && !m.content ? "4px" : "10px 16px",
-                              fontSize: 13, lineHeight: 1.55,
-                              // White for character, very dark for player — exactly like in-game
-                              background: isUser ? "#1e2028" : "#ffffff",
-                              color: isUser ? "#d8daee" : "#1e2030",
-                              borderRadius: 12,
-                              boxShadow: isUser ? "none" : "0 1px 3px rgba(0,0,0,0.08)",
-                              overflow: "hidden",
-                            }}>
+                            <div style={{ padding: m.imageUrl && !m.content ? "4px" : "10px 16px", fontSize: 13, lineHeight: 1.55, background: isUser ? "#1e2028" : "#ffffff", color: isUser ? "#d8daee" : "#1e2030", borderRadius: 12, boxShadow: isUser ? "none" : "0 1px 3px rgba(0,0,0,0.08)", overflow: "hidden" }}>
                               {m.imageUrl && <img src={m.imageUrl} alt="attachment" style={{ display: "block", maxWidth: 200, maxHeight: 160, borderRadius: 6, marginBottom: m.content ? 6 : 0, objectFit: "cover" }} />}
                               {m.content}
                             </div>
@@ -642,7 +749,6 @@ export default function Home() {
                   );
                 })}
 
-                {/* Typing indicator */}
                 {loading && typingFor === activeChat && (
                   <div style={{ marginBottom: 6 }}>
                     <p style={{ fontSize: 11, color: "#888", margin: "8px 0 3px 44px" }}>{activeChar.name}</p>
@@ -657,7 +763,7 @@ export default function Home() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* ── INPUT BAR ── */}
+              {/* INPUT BAR */}
               <div style={{ background: "#d4d6d8", borderTop: "1px solid rgba(0,0,0,0.1)", padding: "8px 12px", flexShrink: 0, display: "flex", flexDirection: "column", gap: 6 }}>
                 {attachedImage && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: "rgba(0,0,0,0.06)", borderRadius: 8 }}>
@@ -674,13 +780,9 @@ export default function Home() {
                       reader.onload = ev => setAttachedImage({ url: ev.target?.result as string, name: file.name });
                       reader.readAsDataURL(file); e.target.value = "";
                     }} />
-
-                  {/* Media picker */}
                   <div ref={mediaPickerRef} style={{ position: "relative", flexShrink: 0 }}>
                     <button onClick={() => setShowMediaPicker(o => !o)} disabled={loading}
-                      style={{ width: 32, height: 32, borderRadius: 7, background: showMediaPicker ? "rgba(0,0,0,0.15)" : "rgba(0,0,0,0.08)", border: "none", cursor: "pointer", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      🎭
-                    </button>
+                      style={{ width: 32, height: 32, borderRadius: 7, background: showMediaPicker ? "rgba(0,0,0,0.15)" : "rgba(0,0,0,0.08)", border: "none", cursor: "pointer", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center" }}>🎭</button>
                     {showMediaPicker && (
                       <div style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 0, width: "min(290px,80vw)", height: 280, background: "#1e2028", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, boxShadow: "0 8px 40px rgba(0,0,0,0.7)", display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideUp 0.2s ease", zIndex: 100 }}>
                         <div style={{ display: "flex", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
@@ -721,8 +823,8 @@ export default function Home() {
                             <div style={{ flex: 1, overflowY: "auto", padding: "0 8px 8px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, gridAutoRows: "90px" }}>
                               {gifLoading && <div style={{ gridColumn: "1/-1", color: "#404258", fontSize: 11, textAlign: "center", padding: "16px 0" }}>Searching...</div>}
                               {!gifLoading && gifResults.length === 0 && <div style={{ gridColumn: "1/-1", color: "#404258", fontSize: 11, textAlign: "center", padding: "16px 0" }}>Search above</div>}
-                              {gifResults.map((g, i) => (
-                                <button key={i} onClick={() => sendGifFromPicker(g.url)}
+                              {gifResults.map((g, idx) => (
+                                <button key={idx} onClick={() => sendGifFromPicker(g.url)}
                                   style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 7, padding: 0, cursor: gifCaption.trim() ? "pointer" : "not-allowed", overflow: "hidden", opacity: gifCaption.trim() ? 1 : 0.3, height: "90px" }}>
                                   <img src={g.preview} alt="gif" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                                 </button>
@@ -733,16 +835,12 @@ export default function Home() {
                       </div>
                     )}
                   </div>
-
-                  {/* Attach */}
                   <button onClick={() => fileInputRef.current?.click()} disabled={loading}
                     style={{ width: 32, height: 32, borderRadius: 7, background: attachedImage ? activeChar.color + "30" : "rgba(0,0,0,0.08)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                       <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke={attachedImage ? activeChar.color : "#777"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   </button>
-
-                  {/* Text input — blocked or normal */}
                   {blockedChats[activeChat!] ? (
                     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                       <span style={{ fontSize: 12, color: "#999", fontStyle: "italic" }}>You have been blocked.</span>
@@ -753,13 +851,10 @@ export default function Home() {
                     </div>
                   ) : (
                     <>
-                      <input
-                        ref={inputRef}
+                      <input ref={inputRef}
                         style={{ flex: 1, background: "#eaebec", border: "1px solid rgba(0,0,0,0.1)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#1e2030", outline: "none", fontFamily: "inherit" }}
                         value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()}
                         placeholder={`Message ${activeChar.name}...`} disabled={loading} />
-
-                      {/* Send button */}
                       <button onClick={sendMessage} disabled={loading || (!input.trim() && !attachedImage)}
                         style={{ width: 32, height: 32, borderRadius: 8, background: (input.trim() || attachedImage) ? "#1e2028" : "rgba(0,0,0,0.1)", border: "none", cursor: (input.trim() || attachedImage) ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
@@ -787,13 +882,14 @@ export default function Home() {
           playerKey={player.key}
           playerAvatar={player.avatar}
           onClose={() => setShowListenTogether(false)}
+          onSessionUpdate={(event) => handleSessionUpdate(activeChat!, event)}
           onBlock={async (blockMsg: string) => {
             setShowListenTogether(false);
             const chatKey = activeChat!;
             await new Promise(r => setTimeout(r, 400));
-            setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] || []), { role: "assistant", content: blockMsg, time: getTime() }] }));
+            setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: blockMsg, time: getTime() }] }));
             await new Promise(r => setTimeout(r, 600));
-            setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] || []), { role: "assistant", content: "[has blocked you]", time: getTime(), isBlock: true }] }));
+            setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: "[has blocked you]", time: getTime(), isBlock: true }] }));
             setBlockedChats(p => ({ ...p, [chatKey]: true }));
             blockingRef.current[chatKey] = true;
             setAnnoyance(p => ({ ...p, [chatKey]: 0 }));

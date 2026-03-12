@@ -1,28 +1,54 @@
 // app/api/chat/route.ts
+// Only the relevant change is in the listenTogether system prompt block.
+// Drop this section in to replace the existing listenTogether block in your route.ts.
+
+// ── LISTEN TOGETHER SYSTEM PROMPT ADDON ──────────────────────────────────
+// Replace the existing `if (listenTogether)` block with this:
+
+/*
+  if (listenTogether) {
+    const angle: string = body.listenTogetherAngle ?? "";
+    const priorReactions: string[] = body.priorReactions ?? [];
+    const priorList = priorReactions.length > 0
+      ? `\n\nYour last ${priorReactions.length} reactions (you MUST say something completely different):\n${priorReactions.map((r, i) => `${i + 1}. "${r}"`).join("\n")}`
+      : "";
+
+    systemPrompt += `\n\n═══ LISTEN TOGETHER MODE ═══
+You are watching a video together with ${playerName}. You must react AUTHENTICALLY and with VARIETY.
+
+STRICT RULES:
+1. NEVER say anything semantically similar to your prior reactions listed below
+2. React to a SPECIFIC, CONCRETE detail — not vague impressions
+3. Forbidden phrases (never use): "melody is familiar", "hollow echo", "something once warm", "dissonant yet", "frequencies", "resonates"
+4. Your reaction angle for this message: ${angle || "anything you haven't commented on yet"}
+5. Keep it to 1-2 sentences
+6. Be genuinely in-character — your personality should color the reaction
+${priorList}
+═══════════════════════════`;
+  }
+*/
+
+// ── FULL UPDATED ROUTE ────────────────────────────────────────────────────
 import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
 import { buildSystemPrompt, getCharacterReferenceImages } from "@/app/characters/characters";
 import fs from "fs";
 import path from "path";
 
-// Primary: DeepSeek direct API
 const deepseekClient = new OpenAI({
   baseURL: "https://api.deepseek.com/v1",
   apiKey: process.env.DEEPSEEK_API_KEY!,
 });
 
-// Fallback: OpenRouter free tier
 const openrouterClient = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: process.env.OPENROUTER_API_KEY!,
 });
 
-// Vision: OpenAI gpt-4o-mini
 const openaiClient = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-// ── GIPHY ─────────────────────────────────────────────────────────────────
 const GIPHY_API_KEY = process.env.GIPHY_API_KEY!;
 
 async function fetchGiphyGif(searchTerm: string): Promise<string | null> {
@@ -35,15 +61,12 @@ async function fetchGiphyGif(searchTerm: string): Promise<string | null> {
     const results = data.data;
     if (!results?.length) return null;
     const pick = results[Math.floor(Math.random() * results.length)];
-    const gifUrl = pick.images?.downsized_medium?.url ?? pick.images?.downsized?.url ?? pick.images?.original?.url ?? null;
-    console.log("[giphy] returning url:", gifUrl);
-    return gifUrl;
+    return pick.images?.downsized_medium?.url ?? pick.images?.downsized?.url ?? pick.images?.original?.url ?? null;
   } catch {
     return null;
   }
 }
 
-// ── STICKER LIST ──────────────────────────────────────────────────────────
 function getAvailableStickers(): string[] {
   try {
     const baseDir = path.join(process.cwd(), "public", "stickers");
@@ -64,7 +87,6 @@ function getAvailableStickers(): string[] {
   } catch { return []; }
 }
 
-// ── TYPES ─────────────────────────────────────────────────────────────────
 type ChatRole = "user" | "assistant" | "system";
 type TextMessage = { role: ChatRole; content: string };
 type VisionMessage = {
@@ -76,7 +98,6 @@ type VisionMessage = {
 };
 type ChatMessage = TextMessage | VisionMessage;
 
-// ── MODELS ────────────────────────────────────────────────────────────────
 const OPENROUTER_FALLBACKS = [
   "meta-llama/llama-3.1-8b-instruct:free",
   "meta-llama/llama-3.3-70b-instruct:free",
@@ -89,9 +110,9 @@ const OPENROUTER_FALLBACKS = [
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 const PARAMS = {
-  temperature: 1.0,
-  presence_penalty: 0.6,
-  frequency_penalty: 0.4,
+  temperature: 1.3,
+  presence_penalty: 1.0,
+  frequency_penalty: 0.8,
   max_tokens: 180,
 };
 
@@ -113,7 +134,12 @@ async function callOpenRouter(model: string, messages: ChatMessage[], systemProm
   return response.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
-async function callOpenAIVision(messages: ChatMessage[], systemPrompt: string, referenceImageUrl?: string, referenceImageChibiUrl?: string): Promise<string> {
+async function callOpenAIVision(
+  messages: ChatMessage[],
+  systemPrompt: string,
+  referenceImageUrl?: string,
+  referenceImageChibiUrl?: string
+): Promise<string> {
   const extraMessages: any[] = (referenceImageUrl || referenceImageChibiUrl) ? [{
     role: "user",
     content: [
@@ -138,7 +164,6 @@ async function callOpenAIVision(messages: ChatMessage[], systemPrompt: string, r
   return response.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
-// ── PARSE AI OUTPUT ───────────────────────────────────────────────────────
 type ParsedMessage = { text: string; gifQuery: string | null; stickerName: string | null };
 
 function parseSingleMessage(raw: string): ParsedMessage {
@@ -161,7 +186,6 @@ function parseAIResponse(raw: string): ParsedMessage[] {
   return parsed.length > 0 ? parsed : [{ text: "...", gifQuery: null, stickerName: null }];
 }
 
-// ── MAIN HANDLER ──────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -171,21 +195,50 @@ export async function POST(req: NextRequest) {
     const playerKey: string = body.playerKey ?? "rover";
     const unblockRequest: boolean = body.unblockRequest ?? false;
     const unblockAccepted: boolean = body.unblockAccepted ?? false;
+    const listenTogether: boolean = body.listenTogether ?? false;
+    const listenTogetherAngle: string = body.listenTogetherAngle ?? "";
+    const priorReactions: string[] = body.priorReactions ?? [];
     const availableStickers = getAvailableStickers();
+
     let systemPrompt = buildSystemPrompt(character, playerName, playerKey, availableStickers);
+
+    // ── LISTEN TOGETHER SYSTEM ADDON ──────────────────────────────────────
+    if (listenTogether) {
+      const priorList = priorReactions.length > 0
+        ? `\n\nYour last ${priorReactions.length} reactions (you MUST say something completely different — not just rephrased):\n${priorReactions.map((r, i) => `${i + 1}. "${r}"`).join("\n")}`
+        : "";
+
+      systemPrompt += `\n\n═══ LISTEN TOGETHER MODE ═══
+You are watching a video together with ${playerName}. React authentically and with VARIETY.
+
+STRICT RULES:
+1. NEVER repeat or rephrase anything in the "prior reactions" list below
+2. Each reaction must focus on a DIFFERENT aspect than all prior ones
+3. React to something SPECIFIC and CONCRETE — not vague impressions
+4. BANNED phrases (never say): "melody is familiar", "hollow echo", "something once warm", 
+   "dissonant yet", "frequencies", "resonates with", "certain beauty", "melancholy"
+5. Max 1-2 sentences
+6. Let your character's personality shape the reaction
+7. Current focus angle: ${listenTogetherAngle || "something you haven't mentioned yet"}
+${priorList}
+═══════════════════════════`;
+    }
+
     const base = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
     const refImages = getCharacterReferenceImages(character);
     const referenceImageUrl = refImages.normal ? `${base}${refImages.normal}` : undefined;
     const referenceImageChibiUrl = refImages.chibi ? `${base}${refImages.chibi}` : undefined;
 
-    // Inject unblock context
     if (unblockRequest) {
       systemPrompt += unblockAccepted
         ? `\n\n[UNBLOCK REQUEST]: The user sent you an unblock request. You decided to unblock them — reluctantly. Be mean about it. Make it clear this is not forgiveness.`
         : `\n\n[UNBLOCK REQUEST]: The user sent you an unblock request. You are keeping them blocked. Decline coldly. Do not explain yourself much.`;
     }
 
-    const rawMessages: { role: string; content: string; imageUrl?: string; stickerName?: string; gifUrl?: string; gifCaption?: string }[] = body.messages ?? [];
+    const rawMessages: {
+      role: string; content: string;
+      imageUrl?: string; stickerName?: string; gifUrl?: string; gifCaption?: string;
+    }[] = body.messages ?? [];
 
     const messages: ChatMessage[] = rawMessages
       .filter(m => ["user", "assistant"].includes(m.role))
@@ -213,37 +266,27 @@ export async function POST(req: NextRequest) {
     const hasImage = rawMessages.some(m => m.imageUrl);
     let rawContent = "";
 
-    // 1. DeepSeek for text (best quality)
     if (!hasImage) {
       try {
-        console.log("[chat] trying: deepseek-chat");
         rawContent = await callDeepSeek(messages, systemPrompt);
-        if (rawContent) console.log("[chat] success: deepseek-chat");
       } catch (err: any) {
         console.warn("[chat] deepseek-chat failed:", err.message);
       }
-      // DeepSeek failed — try gpt-4o-mini before OpenRouter
       if (!rawContent) {
         try {
-          console.log("[chat] trying fallback: gpt-4o-mini");
           rawContent = await callOpenAIVision(messages, systemPrompt);
-          if (rawContent) console.log("[chat] success: gpt-4o-mini");
         } catch (err: any) {
           console.warn("[chat] gpt-4o-mini failed:", err.message);
         }
       }
     }
 
-    // 2. Vision: gpt-4o-mini for images
     if (!rawContent && hasImage) {
       try {
-        console.log("[chat] trying vision: gpt-4o-mini");
         rawContent = await callOpenAIVision(messages, systemPrompt, referenceImageUrl, referenceImageChibiUrl);
-        if (rawContent) console.log("[chat] success: gpt-4o-mini");
       } catch (err: any) {
         console.warn("[chat] gpt-4o-mini vision failed:", err.message);
       }
-      // Vision failed — fall back to DeepSeek text-only
       if (!rawContent) {
         const textOnly: TextMessage[] = rawMessages
           .filter(m => ["user", "assistant"].includes(m.role))
@@ -255,24 +298,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. GPT-4o-mini fallback if DeepSeek fails
     if (!rawContent) {
       try {
-        console.log("[chat] fallback: gpt-4o-mini");
         rawContent = await callOpenAIVision(messages, systemPrompt);
-        if (rawContent) console.log("[chat] success: gpt-4o-mini fallback");
       } catch (err: any) {
         console.warn("[chat] gpt-4o-mini fallback failed:", err.message);
       }
     }
 
-    // 4. OpenRouter free fallbacks
     if (!rawContent) {
       for (const model of OPENROUTER_FALLBACKS) {
         try {
-          console.log("[chat] fallback:", model);
           rawContent = await callOpenRouter(model, messages, systemPrompt);
-          if (rawContent) { console.log("[chat] success:", model); break; }
+          if (rawContent) break;
         } catch (err: any) {
           if ((err?.status ?? 0) === 429) await sleep(800);
           continue;
@@ -288,23 +326,18 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Parse multi-message response
     let parsed = parseAIResponse(rawContent);
 
-    // Parse ANN delta tag — MUST happen before any stripping
     let annoyanceDelta = 0;
     parsed = parsed.map(p => {
       const match = p.text.match(/\[ANN:([+-]\d+)\]/i);
       if (match) {
         annoyanceDelta += parseInt(match[1], 10);
-        console.log(`[annoyance] tag found: ${match[0]} → delta ${annoyanceDelta}`);
-        return { ...p, text: p.text.replace(/\[ANN:[+-]\d+\]/gi, '').trim() };
+        return { ...p, text: p.text.replace(/\[ANN:[+-]\d+\]/gi, "").trim() };
       }
       return p;
     });
-    if (annoyanceDelta === 0) console.warn("[annoyance] no [ANN] tag found in response — AI may not be appending it");
 
-    // Phrolova: strip quotes, ellipsis, and forbidden openers
     if (character === "phrolova") {
       parsed = parsed.map(p => ({
         ...p,
@@ -321,35 +354,29 @@ export async function POST(req: NextRequest) {
       }));
     }
 
-    // Parse SING_SONG tag
     let singSong = false;
     parsed = parsed.map(p => {
-      if (p.text.includes('[SING_SONG]')) {
+      if (p.text.includes("[SING_SONG]")) {
         singSong = true;
-        return { ...p, text: p.text.replace(/\[SING_SONG\]/gi, '').trim() };
+        return { ...p, text: p.text.replace(/\[SING_SONG\]/gi, "").trim() };
       }
       return p;
     });
 
-    // Drop messages that are empty or just punctuation after post-processing
     parsed = parsed.filter(p => p.text.replace(/^[.…\s]+$/, "").trim() || p.gifQuery || p.stickerName);
     if (parsed.length === 0) parsed = [{ text: character === "phrolova" ? "" : "...", gifQuery: null, stickerName: null }];
 
-    // Phrolova: if a message has a sticker/gif but no text, drop the media — text is required
     if (character === "phrolova") {
       parsed = parsed.map(p => {
         if ((p.stickerName || p.gifQuery) && !p.text.trim()) {
-          console.warn("[chat] phrolova sent sticker/gif with no text — dropping media");
           return { text: "", gifQuery: null, stickerName: null };
         }
         return p;
       });
-      // Re-filter after potential drops
       parsed = parsed.filter(p => p.text.trim() || p.gifQuery || p.stickerName);
       if (parsed.length === 0) parsed = [{ text: "", gifQuery: null, stickerName: null }];
     }
 
-    // Fetch GIFs
     const messagesOut = await Promise.all(parsed.map(async p => {
       let gifUrl: string | null = null;
       if (p.gifQuery) gifUrl = await fetchGiphyGif(p.gifQuery);
@@ -369,6 +396,10 @@ export async function POST(req: NextRequest) {
 
   } catch (error: any) {
     console.error("[chat] fatal:", error.message);
-    return NextResponse.json({ role: "assistant", messages: [{ content: "something broke. try again.", gifUrl: null, stickerName: null }], content: "something broke. try again." });
+    return NextResponse.json({
+      role: "assistant",
+      messages: [{ content: "something broke. try again.", gifUrl: null, stickerName: null }],
+      content: "something broke. try again.",
+    });
   }
 }
