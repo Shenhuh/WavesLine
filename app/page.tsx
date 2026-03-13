@@ -445,74 +445,58 @@ async function triggerAIReply(chatKey: string, messages: Message[]) {
       const parts = ltMatch[1].split(':');
       
       // Extract what the AI wants to show
-      let videoId = parts[0]?.trim();
-      let title = parts[1]?.trim() || '';
-      let channel = parts[2]?.trim() || '';
+      const videoId = parts[0]?.trim(); // We'll ignore this
+      const title = parts[1]?.trim() || ''; // This is what we'll search for
+      const channel = parts[2]?.trim() || '';
       
+      // IMPORTANT: Remove the tag completely from the spoken text
       const spokenText = rawContent.replace(ltMatch[0], '').trim();
       
-      // ALWAYS search YouTube and pick the first result
-      // This ensures we always get a working video
-      
-      // Create a search query from the title or use the video ID as fallback
+      // Use the TITLE from the AI to search YouTube
       let searchQuery = title;
       
-      // If no title, try to extract context from the conversation
-      if (!searchQuery) {
-        const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
-        // Extract key terms from the user's message (remove common words)
-        const keywords = lastUserMsg
-          .toLowerCase()
-          .replace(/[^\w\s]/g, '')
-          .split(' ')
-          .filter(word => word.length > 3 && !['show', 'watch', 'tell', 'what', 'that', 'this'].includes(word))
-          .join(' ');
-        
-        searchQuery = keywords || `Wuthering Waves`;
-      }
-      
-      // Add "Wuthering Waves" to the search if it's not already there
-      if (!searchQuery.toLowerCase().includes('wuthering') && !searchQuery.toLowerCase().includes('waves')) {
+      // If the title is generic, make it more specific
+      if (searchQuery && !searchQuery.toLowerCase().includes('wuthering waves')) {
         searchQuery = `Wuthering Waves ${searchQuery}`;
       }
       
-      console.log('Searching YouTube for:', searchQuery);
+      console.log('Searching YouTube for title:', searchQuery);
+      
+      let realVideoId = videoId; // Start with AI's ID as fallback
+      let realTitle = title;
+      let realChannel = channel;
       
       try {
-        // Search YouTube
+        // Search YouTube using the title from AI
         const searchRes = await fetch(`/api/youtube?q=${encodeURIComponent(searchQuery)}`);
         const searchData = await searchRes.json();
         
         if (searchData.results && searchData.results.length > 0) {
-          // Simply take the FIRST result - no fancy matching needed!
+          // Take the FIRST result - this will be the most relevant video
           const firstResult = searchData.results[0];
-          videoId = firstResult.id;
-          title = firstResult.title;
-          channel = firstResult.channel;
+          realVideoId = firstResult.id;
+          realTitle = firstResult.title;
+          realChannel = firstResult.channel;
           
-          console.log('Selected FIRST video result:', { videoId, title, channel });
+          console.log('✅ Found real video as first result:', { 
+            videoId: realVideoId, 
+            title: realTitle,
+            channel: realChannel 
+          });
         } else {
-          // No results found - use a safe fallback
-          console.log('No YouTube results found, using fallback');
-          videoId = 'Wc4Xh-fCkoM'; // Augusta showcase
-          title = 'Wuthering Waves Gameplay';
-          channel = 'Kuro Games';
+          console.log('❌ No search results found for:', searchQuery);
         }
       } catch (error) {
         console.error('Error searching YouTube:', error);
-        // Fallback to a safe video
-        videoId = 'Wc4Xh-fCkoM';
-        title = title || 'Wuthering Waves Gameplay';
-        channel = 'Kuro Games';
       }
       
-      // Add the spoken text first if it exists
+      // Add the spoken text first if it exists (WITHOUT the tag)
       if (spokenText) {
         setAllMessages(prev => ({
           ...prev,
           [chatKey]: [...(prev[chatKey] ?? []), { 
             role: "assistant", 
-            content: spokenText, 
+            content: spokenText, // This has the tag removed
             time: getTime() 
           }],
         }));
@@ -520,20 +504,25 @@ async function triggerAIReply(chatKey: string, messages: Message[]) {
         await new Promise(r => setTimeout(r, 500));
       }
       
-      // Add the invite bubble with the REAL video from search
+      // Add the invite bubble with the REAL video ID from search
       setAllMessages(prev => ({
         ...prev,
         [chatKey]: [...(prev[chatKey] ?? []), {
           role: "assistant",
-          content: "",
+          content: "", // Empty content - just the invite bubble
           time: getTime(),
           isLTInvite: true,
-          ltInviteVideoId: videoId,
-          ltInviteTitle: decodeHtml(title),
-          ltInviteChannel: decodeHtml(channel),
+          ltInviteVideoId: realVideoId,
+          ltInviteTitle: decodeHtml(realTitle),
+          ltInviteChannel: decodeHtml(realChannel),
           ltInviteAccepted: undefined,
         }],
       }));
+      
+      console.log('🎬 Invite sent with real video:', { 
+        id: realVideoId, 
+        title: realTitle 
+      });
       
       setTypingFor(null);
       setLoading(false);
@@ -547,11 +536,18 @@ async function triggerAIReply(chatKey: string, messages: Message[]) {
     for (let i = 0; i < replyMsgs.length; i++) {
       if (i > 0) await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
       const m = replyMsgs[i];
+      
+      // Final safety check: If any content somehow still has the tag, remove it
+      let cleanContent = m.content ?? "";
+      if (cleanContent.includes('[LISTEN_TOGETHER:')) {
+        cleanContent = cleanContent.replace(/\[LISTEN_TOGETHER:[^\]]+\]/, '').trim();
+      }
+      
       setAllMessages(prev => ({
         ...prev,
         [chatKey]: [...(prev[chatKey] ?? []), {
           role: "assistant", 
-          content: m.content ?? "", 
+          content: cleanContent, 
           time: getTime(),
           gifUrl: m.gifUrl ?? undefined, 
           stickerName: m.stickerName ?? undefined,
@@ -629,7 +625,6 @@ async function triggerAIReply(chatKey: string, messages: Message[]) {
   setLoading(false);
   setTimeout(() => inputRef.current?.focus(), 50);
 }
-
   // ── Accept / decline AI-initiated LT invite ───────────────────────────────
   function acceptLTInvite(chatKey: string, msgIndex: number) {
     console.log('Accepting LT invite for', chatKey);
