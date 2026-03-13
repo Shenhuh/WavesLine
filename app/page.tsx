@@ -407,7 +407,7 @@ export default function Home() {
     }, 500);
   }
 
-  async function triggerAIReply(chatKey: string, messages: Message[]) {
+async function triggerAIReply(chatKey: string, messages: Message[]) {
   if (!player) return;
   setTypingFor(chatKey); 
   setLoading(true);
@@ -451,102 +451,59 @@ export default function Home() {
       
       const spokenText = rawContent.replace(ltMatch[0], '').trim();
       
-      // If the video ID looks fake or we have a title, search for it
-      const isValidVideoId = videoId && 
-                            videoId.length === 11 && 
-                            /^[a-zA-Z0-9_-]+$/.test(videoId) &&
-                            !videoId.includes(' ') &&
-                            videoId !== 'dQw4w9WgXcQ'; // Avoid Rick Roll
+      // ALWAYS search YouTube and pick the first result
+      // This ensures we always get a working video
       
-      // If we have a title but invalid ID, search for it
-      if ((!isValidVideoId || videoId === 'dQw4w9WgXcQ') && title) {
-        console.log('Searching YouTube for:', title);
+      // Create a search query from the title or use the video ID as fallback
+      let searchQuery = title;
+      
+      // If no title, try to extract context from the conversation
+      if (!searchQuery) {
+        const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
+        // Extract key terms from the user's message (remove common words)
+        const keywords = lastUserMsg
+          .toLowerCase()
+          .replace(/[^\w\s]/g, '')
+          .split(' ')
+          .filter(word => word.length > 3 && !['show', 'watch', 'tell', 'what', 'that', 'this'].includes(word))
+          .join(' ');
         
-        try {
-          // Search YouTube for the video
-          const searchRes = await fetch(`/api/youtube?q=${encodeURIComponent(title)}`);
-          const searchData = await searchRes.json();
+        searchQuery = keywords || `Wuthering Waves`;
+      }
+      
+      // Add "Wuthering Waves" to the search if it's not already there
+      if (!searchQuery.toLowerCase().includes('wuthering') && !searchQuery.toLowerCase().includes('waves')) {
+        searchQuery = `Wuthering Waves ${searchQuery}`;
+      }
+      
+      console.log('Searching YouTube for:', searchQuery);
+      
+      try {
+        // Search YouTube
+        const searchRes = await fetch(`/api/youtube?q=${encodeURIComponent(searchQuery)}`);
+        const searchData = await searchRes.json();
+        
+        if (searchData.results && searchData.results.length > 0) {
+          // Simply take the FIRST result - no fancy matching needed!
+          const firstResult = searchData.results[0];
+          videoId = firstResult.id;
+          title = firstResult.title;
+          channel = firstResult.channel;
           
-          if (searchData.results && searchData.results.length > 0) {
-            // Try to find the best match
-            let bestMatch = searchData.results[0];
-            
-            // If we have channel info, try to find a video from that channel
-            if (channel && channel !== 'YouTube') {
-              const channelMatch = searchData.results.find((v: any) => 
-                v.channel.toLowerCase().includes(channel.toLowerCase())
-              );
-              if (channelMatch) bestMatch = channelMatch;
-            }
-            
-            // Check if title contains keywords from search
-            const searchTerms = title.toLowerCase().split(' ');
-            for (const result of searchData.results) {
-              const resultTitle = result.title.toLowerCase();
-              const matchCount = searchTerms.filter(term => 
-                resultTitle.includes(term) && term.length > 3
-              ).length;
-              
-              if (matchCount >= 2) {
-                bestMatch = result;
-                break;
-              }
-            }
-            
-            videoId = bestMatch.id;
-            title = bestMatch.title;
-            channel = bestMatch.channel;
-            
-            console.log('Selected video:', { videoId, title, channel });
-          } else {
-            // No results found
-            console.log('No YouTube results found for:', title);
-            
-            // Show error message to user
-            if (spokenText) {
-              setAllMessages(prev => ({
-                ...prev,
-                [chatKey]: [...(prev[chatKey] ?? []), { 
-                  role: "assistant", 
-                  content: spokenText, 
-                  time: getTime() 
-                }],
-              }));
-            }
-            
-            setAllMessages(prev => ({
-              ...prev,
-              [chatKey]: [...(prev[chatKey] ?? []), {
-                role: "assistant",
-                content: "I tried to find that video but couldn't locate it. Maybe try searching yourself?",
-                time: getTime()
-              }],
-            }));
-            
-            setTypingFor(null);
-            setLoading(false);
-            return;
-          }
-        } catch (error) {
-          console.error('Error searching YouTube:', error);
-          
-          // Fallback to a safe video
-          videoId = 'jfKfPfyJRdk'; // Lofi Girl - safe fallback
-          title = title || 'Study Music';
-          channel = 'Lofi Girl';
+          console.log('Selected FIRST video result:', { videoId, title, channel });
+        } else {
+          // No results found - use a safe fallback
+          console.log('No YouTube results found, using fallback');
+          videoId = 'Wc4Xh-fCkoM'; // Augusta showcase
+          title = 'Wuthering Waves Gameplay';
+          channel = 'Kuro Games';
         }
-      } else if (!title && videoId && isValidVideoId) {
-        // We have a valid video ID but no title, fetch video details
-        try {
-          const detailsRes = await fetch(`/api/video-details?id=${videoId}`);
-          const details = await detailsRes.json();
-          if (details.title) {
-            title = details.title;
-            channel = details.channel;
-          }
-        } catch (error) {
-          console.error('Error fetching video details:', error);
-        }
+      } catch (error) {
+        console.error('Error searching YouTube:', error);
+        // Fallback to a safe video
+        videoId = 'Wc4Xh-fCkoM';
+        title = title || 'Wuthering Waves Gameplay';
+        channel = 'Kuro Games';
       }
       
       // Add the spoken text first if it exists
@@ -563,7 +520,7 @@ export default function Home() {
         await new Promise(r => setTimeout(r, 500));
       }
       
-      // Add the invite bubble
+      // Add the invite bubble with the REAL video from search
       setAllMessages(prev => ({
         ...prev,
         [chatKey]: [...(prev[chatKey] ?? []), {
@@ -572,8 +529,8 @@ export default function Home() {
           time: getTime(),
           isLTInvite: true,
           ltInviteVideoId: videoId,
-          ltInviteTitle: decodeHtml(title || 'Join me watching a video'),
-          ltInviteChannel: decodeHtml(channel || 'YouTube'),
+          ltInviteTitle: decodeHtml(title),
+          ltInviteChannel: decodeHtml(channel),
           ltInviteAccepted: undefined,
         }],
       }));
@@ -618,7 +575,6 @@ export default function Home() {
       setAnnoyance(prev => {
         const current = prev[chatKey] ?? 0;
         const next = Math.min(100, Math.max(0, current + reply.annoyanceDelta));
-        console.log(`[annoyance] ${chatKey}: ${current} + ${reply.annoyanceDelta} = ${next} / ${threshold}`);
         if (next >= threshold) {
           if (blockingRef.current[chatKey]) return { ...prev, [chatKey]: next };
           blockingRef.current[chatKey] = true;
