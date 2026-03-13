@@ -30,8 +30,16 @@ interface Props {
   playerAvatar: string;
   onClose: () => void;
   onBlock: (message: string) => void;
-  // Called when notable session events happen, so main chat can stay in sync
+  onDecline: () => void;
   onSessionUpdate?: (event: SessionEvent) => void;
+  // Shared message history with main chat
+  sharedMessages: { role: string; content: string; time?: string }[];
+  onAddMessage: (msg: { role: "user" | "assistant" | "system"; content: string; time: string }) => void;
+  
+  // New props for direct video loading from invite
+  initialVideoId?: string | null;
+  initialVideoTitle?: string | null;
+  initialVideoChannel?: string | null;
 }
 
 export type SessionEvent =
@@ -58,7 +66,10 @@ const REACTION_ANGLES = [
 
 export default function ListenTogether({
   characterKey, characterName, characterColor,
-  characterAvatar, playerName, playerKey, playerAvatar, onClose, onBlock, onSessionUpdate
+  characterAvatar, playerName, playerKey, playerAvatar,
+  onClose, onBlock, onDecline, onSessionUpdate,
+  sharedMessages, onAddMessage,
+  initialVideoId, initialVideoTitle, initialVideoChannel,
 }: Props) {
   const [phase, setPhase] = useState<"search" | "waiting" | "playing" | "ended">("search");
   const [query, setQuery] = useState("");
@@ -66,16 +77,21 @@ export default function ListenTogether({
   const [searching, setSearching] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<VideoResult | null>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[] | null>(null);
-  const [messages, setMessages] = useState<LTMessage[]>([]);
-  const [currentTime, setCurrentTime] = useState(0);
   const [reactingNow, setReactingNow] = useState(false);
   const [input, setInput] = useState("");
   const [isMobile, setIsMobile] = useState(false);
+  const [ltCooldown, setLtCooldown] = useState(false);
+  const [ltStickers, setLtStickers] = useState<string[]>([]);
+  const [ltShowStickers, setLtShowStickers] = useState(false);
+  const [ltAttachedImage, setLtAttachedImage] = useState<string | null>(null);
+  const ltFileInputRef = useRef<HTMLInputElement>(null);
+  const ltStickerPickerRef = useRef<HTMLDivElement>(null);
 
   const playerRef = useRef<any>(null);
   const periodicRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timeTrackerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const usedTranscriptOffsets = useRef<Set<number>>(new Set());
+  const transcriptRef = useRef<string>(""); // full transcript text, injected into system prompt
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reactionLockRef = useRef(false);
   const inviteLockRef = useRef(false);
@@ -84,8 +100,18 @@ export default function ListenTogether({
 
   // Refs to avoid stale closures in timers
   const currentTimeRef = useRef(0);
-  const messagesRef = useRef<LTMessage[]>([]);
+  // messagesRef mirrors sharedMessages so timer callbacks always read fresh values
+  const messagesRef = useRef<{ role: string; content: string; time?: string }[]>([]);
   const selectedVideoRef = useRef<VideoResult | null>(null);
+
+  // Keep messagesRef in sync with shared messages from parent
+  useEffect(() => { messagesRef.current = sharedMessages; }, [sharedMessages]);
+
+  // addMessage writes to parent — keeps one unified history
+  const addMessage = useCallback((msg: { role: "user" | "assistant" | "system"; content: string; time: string }) => {
+    onAddMessage(msg);
+    messagesRef.current = [...messagesRef.current, msg];
+  }, [onAddMessage]);
 
   // Track which reaction angles have been used (cycle through all before repeating)
   const usedAnglesRef = useRef<Set<string>>(new Set());
@@ -93,12 +119,41 @@ export default function ListenTogether({
   // Track last N reaction texts for semantic dedup
   const reactionHistoryRef = useRef<string[]>([]);
 
+  // Auto-select video from initial props
+  useEffect(() => {
+    if (initialVideoId && initialVideoTitle && initialVideoChannel) {
+      console.log('Auto-selecting video from invite:', { initialVideoId, initialVideoTitle, initialVideoChannel });
+      const video = {
+        id: initialVideoId,
+        title: initialVideoTitle,
+        channel: initialVideoChannel,
+        thumbnail: `https://img.youtube.com/vi/${initialVideoId}/mqdefault.jpg`
+      };
+      
+      // Small delay to ensure component is ready
+      setTimeout(() => {
+        selectVideo(video);
+      }, 100);
+    }
+  }, [initialVideoId, initialVideoTitle, initialVideoChannel]);
+
   // Detect mobile
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640);
     check();
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
+  }, []);
+
+  // Fetch stickers for LT picker
+  useEffect(() => {
+    fetch("/api/stickers").then(r => r.json()).then(d => setLtStickers(d.files ?? [])).catch(() => {});
+  }, []);
+
+  // Close sticker picker on outside click
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ltStickerPickerRef.current && !ltStickerPickerRef.current.contains(e.target as Node)) setLtShowStickers(false); };
+    document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h);
   }, []);
 
   // Load YouTube IFrame API
@@ -114,19 +169,10 @@ export default function ListenTogether({
   // Auto-scroll messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [sharedMessages]);
 
-  // Keep refs in sync so timer callbacks always read fresh values (avoid stale closures)
-  useEffect(() => { currentTimeRef.current = currentTime; }, [currentTime]);
+  // Keep video ref in sync
   useEffect(() => { selectedVideoRef.current = selectedVideo; }, [selectedVideo]);
-
-  const addMessage = useCallback((msg: LTMessage) => {
-    setMessages(prev => {
-      const next = [...prev, msg];
-      messagesRef.current = next;
-      return next;
-    });
-  }, []);
 
   // ── SEARCH ──────────────────────────────────────────────────────────────
   async function search() {
@@ -140,90 +186,220 @@ export default function ListenTogether({
     setSearching(false);
   }
 
-  // ── SELECT VIDEO ─────────────────────────────────────────────────────────
-  async function selectVideo(video: VideoResult) {
-    if (inviteLockRef.current) return;
-    inviteLockRef.current = true;
-    setSelectedVideo(video);
-    setPhase("waiting");
-    setResults([]);
-
-    // Reset all tracking for new video
-    usedAnglesRef.current = new Set();
-    reactionHistoryRef.current = [];
-    usedTranscriptOffsets.current.clear();
-
-    addMessage({ role: "system", content: `You invited ${characterName} to listen to "${decodeHtml(video.title)}"`, time: getTime() });
-
-    fetch(`/api/transcript?id=${video.id}`)
+  // ── FETCH & STORE TRANSCRIPT ──────────────────────────────────────────────
+  function fetchAndStoreTranscript(videoId: string) {
+    transcriptRef.current = "";
+    setTranscript(null);
+    fetch(`/api/transcript?id=${videoId}`)
       .then(r => r.json())
-      .then(d => setTranscript(d.transcript ?? null))
+      .then(d => {
+        const entries = d.transcript ?? null;
+        setTranscript(entries);
+        if (entries?.length) {
+          // Cap at 120 lines to avoid bloating the system prompt
+          const lines = entries
+            .filter((t: any) => t.text.length > 2 && !t.text.match(/^\([^)]+\)$|^\[[^\]]+\]$/))
+            .slice(0, 120);
+          transcriptRef.current = lines
+            .map((t: any) => `[${Math.floor(t.offset / 60)}:${String(t.offset % 60).padStart(2, "0")}] ${t.text}`)
+            .join("\n");
+        }
+      })
       .catch(() => {});
+  }
 
-    await new Promise(r => setTimeout(r, 1000 + Math.random() * 800));
-    const accepted = Math.random() < 0.70;
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [{ role: "user", content: `[Listen Together invite]: ${playerName} wants to listen to "${decodeHtml(video.title)}" by ${decodeHtml(video.channel)} together on WavesLine. ${accepted ? "Accept briefly in character." : "Decline briefly in character."}` }],
-          character: characterKey, playerName, playerKey,
-          listenTogether: true,
-          listenTogetherInvite: true, listenAccepted: accepted,
-        }),
-      });
-      const reply = await res.json();
-      const text = reply.messages?.[0]?.content ?? reply.content ?? "";
-      if (text) addMessage({ role: "assistant", content: text, time: getTime() });
-    } catch {}
+  // ── SELECT VIDEO ─────────────────────────────────────────────────────────
+  // ── SELECT VIDEO ─────────────────────────────────────────────────────────
+async function selectVideo(video: VideoResult) {
+  if (inviteLockRef.current) return;
+  inviteLockRef.current = true;
+  setSelectedVideo(video);
+  setPhase("waiting");
+  setResults([]);
 
-    if (accepted) {
-      await new Promise(r => setTimeout(r, 500));
-      addMessage({ role: "system", content: `${characterName} joined. Now playing.`, time: getTime() });
-      onSessionUpdate?.({ type: "video_started", title: video.title, channel: video.channel });
+  // Reset all tracking for new video
+  usedAnglesRef.current = new Set();
+  reactionHistoryRef.current = [];
+  usedTranscriptOffsets.current.clear();
+
+  addMessage({ role: "system", content: `You invited ${characterName} to listen to "${decodeHtml(video.title)}"`, time: getTime() });
+
+  fetchAndStoreTranscript(video.id);
+
+  await new Promise(r => setTimeout(r, 1000 + Math.random() * 800));
+  
+  // Higher acceptance rate for testing
+  const accepted = Math.random() < 0.85; // Increased to 85%
+  
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: `[Listen Together invite]: ${playerName} wants to listen to "${decodeHtml(video.title)}" by ${decodeHtml(video.channel)} together on WavesLine. ${accepted ? "Accept briefly in character." : "Decline briefly in character."}` }],
+        character: characterKey, playerName, playerKey,
+        listenTogether: true,
+        listenTogetherInvite: true, listenAccepted: accepted,
+      }),
+    });
+    const reply = await res.json();
+    const text = reply.messages?.[0]?.content ?? reply.content ?? "";
+    if (text) addMessage({ role: "assistant", content: text, time: getTime() });
+  } catch {}
+
+  if (accepted) {
+    await new Promise(r => setTimeout(r, 500));
+    addMessage({ role: "system", content: `${characterName} joined. Now playing.`, time: getTime() });
+    onSessionUpdate?.({ type: "video_started", title: video.title, channel: video.channel });
+    
+    // Add a small delay before starting the video
+    setTimeout(() => {
       startPlaying(video);
-    } else {
-      setPhase("search");
-      setSelectedVideo(null);
-      inviteLockRef.current = false;
+    }, 500);
+  } else {
+    // Close modal after a short delay so user can read the decline message
+    await new Promise(r => setTimeout(r, 1800));
+    setPhase("search");
+    setSelectedVideo(null);
+    inviteLockRef.current = false;
+    onDecline();
+  }
+}
+
+ // ── START PLAYING ────────────────────────────────────────────────────────
+function startPlaying(video: VideoResult) {
+  setPhase("playing");
+
+  // Make sure the player container exists
+  const ensurePlayerContainer = () => {
+    let playerContainer = document.getElementById("yt-player");
+    if (!playerContainer) {
+      console.log('Player container not found, creating it');
+      // Find the video container or create one
+      const videoSection = document.querySelector('[class*="yt-player"]')?.parentElement || 
+                          document.querySelector('.video-container') ||
+                          document.querySelector('[style*="background: #000"]');
+      
+      if (videoSection) {
+        const newDiv = document.createElement('div');
+        newDiv.id = "yt-player";
+        newDiv.style.width = "100%";
+        newDiv.style.height = "100%";
+        videoSection.appendChild(newDiv);
+        playerContainer = newDiv;
+      } else {
+        console.error('Could not find video container');
+        return false;
+      }
     }
-  }
+    return true;
+  };
 
-  // ── START PLAYING ────────────────────────────────────────────────────────
-  function startPlaying(video: VideoResult) {
-    setPhase("playing");
+  const initPlayer = () => {
+    if (!ensurePlayerContainer()) {
+      setTimeout(initPlayer, 500);
+      return;
+    }
 
-    const tryInit = (attempts = 0) => {
-      if ((window as any).YT?.Player) {
-        playerRef.current = new (window as any).YT.Player("yt-player", {
-          videoId: video.id,
-          playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1, fs: 0 },
-          events: {
-            onStateChange: (e: any) => { if (e.data === 0) handleVideoEnd(); },
+    // Check if YT API is available
+    if (typeof (window as any).YT === 'undefined' || typeof (window as any).YT.Player === 'undefined') {
+      console.log('YouTube API not ready yet, waiting...');
+      setTimeout(initPlayer, 300);
+      return;
+    }
+
+    try {
+      // Destroy existing player if any
+      if (playerRef.current && typeof playerRef.current.destroy === 'function') {
+        try {
+          playerRef.current.destroy();
+        } catch (e) {
+          console.log('Error destroying old player:', e);
+        }
+        playerRef.current = null;
+      }
+
+      console.log('Creating YouTube player for video:', video.id);
+      
+      playerRef.current = new (window as any).YT.Player("yt-player", {
+        videoId: video.id,
+        playerVars: { 
+          autoplay: 1, 
+          rel: 0, 
+          modestbranding: 1, 
+          playsinline: 1, 
+          fs: 0,
+          origin: window.location.origin,
+          enablejsapi: 1
+        },
+        events: {
+          onReady: (event: any) => {
+            console.log('Player ready, playing video:', video.id);
+            event.target.playVideo();
           },
-        });
-      } else if (attempts < 20) {
-        setTimeout(() => tryInit(attempts + 1), 300);
-      }
-    };
-    setTimeout(() => tryInit(), 800);
+          onStateChange: (e: any) => { 
+            if (e.data === 0) handleVideoEnd();
+            if (e.data === -1) console.log('Video buffering/not started');
+            if (e.data === 2) console.log('Video paused');
+            if (e.data === 1) console.log('Video playing');
+          },
+          onError: (e: any) => {
+            console.error('YouTube player error:', e.data);
+            let errorMessage = "Unable to play this video.";
+            
+            // YouTube error codes
+            switch(e.data) {
+              case 2:
+                errorMessage = "Invalid video ID.";
+                break;
+              case 5:
+                errorMessage = "HTML5 player error.";
+                break;
+              case 100:
+                errorMessage = "Video not found or removed.";
+                break;
+              case 101:
+              case 150:
+                errorMessage = "Video cannot be embedded.";
+                break;
+            }
+            
+            addMessage({ 
+              role: "system", 
+              content: `⚠️ ${errorMessage} Please try another video.`, 
+              time: getTime() 
+            });
+            
+            // Return to search after error
+            setTimeout(() => {
+              setPhase("search");
+              setSelectedVideo(null);
+            }, 2000);
+          }
+        },
+      });
+    } catch (error) {
+      console.error('Error creating YouTube player:', error);
+      addMessage({ 
+        role: "system", 
+        content: `⚠️ Failed to load video player. Please try again.`, 
+        time: getTime() 
+      });
+      setTimeout(() => {
+        setPhase("search");
+        setSelectedVideo(null);
+      }, 2000);
+    }
+  };
 
-    timeTrackerRef.current = setInterval(() => {
-      if (playerRef.current?.getCurrentTime) {
-        setCurrentTime(Math.floor(playerRef.current.getCurrentTime()));
-      }
-    }, 1000);
+  // Start the initialization process
+  setTimeout(initPlayer, 800);
 
-    // Schedule periodic reactions
-    const scheduleNext = () => {
-      const delay = 22000 + Math.random() * 18000; // 22–40 seconds
-      periodicRef.current = setTimeout(() => {
-        triggerReaction("periodic");
-        scheduleNext();
-      }, delay) as any;
-    };
-    scheduleNext();
-  }
+  timeTrackerRef.current = setInterval(() => {
+    if (playerRef.current?.getCurrentTime) {
+      currentTimeRef.current = Math.floor(playerRef.current.getCurrentTime());
+    }
+  }, 1000);
+}
 
   // ── PICK NEXT ANGLE (never repeats until all used) ───────────────────────
   function pickNextAngle(): typeof REACTION_ANGLES[0] {
@@ -274,7 +450,7 @@ export default function ListenTogether({
 
   // ── TRIGGER REACTION ─────────────────────────────────────────────────────
   async function triggerReaction(
-    type: "periodic" | "transcript",
+    type: "transcript",
     transcriptLine?: string,
     retryCount = 0
   ) {
@@ -412,25 +588,6 @@ Rules:
 - Stay in character`;
   }
 
-  // ── TRANSCRIPT REACTIONS ─────────────────────────────────────────────────
-  useEffect(() => {
-    if (!transcript || phase !== "playing") return;
-    if (Math.random() > 0.35) return; // 35% chance per tick
-
-    const ct = currentTimeRef.current;
-    const nearby = transcript.find(t =>
-      Math.abs(t.offset - ct) <= 2 &&
-      !usedTranscriptOffsets.current.has(t.offset) &&
-      t.text.length > 20 &&
-      !t.text.match(/^\([^)]+\)$|^\[[^\]]+\]$/)
-    );
-
-    if (nearby && !reactionLockRef.current && !blockingRef.current) {
-      usedTranscriptOffsets.current.add(nearby.offset);
-      triggerReaction("transcript", nearby.text);
-    }
-  }, [currentTime]); // currentTime ticking drives this, but we read ref inside
-
   async function handleVideoEnd() {
     if (periodicRef.current) clearTimeout(periodicRef.current);
     if (timeTrackerRef.current) clearInterval(timeTrackerRef.current);
@@ -474,7 +631,7 @@ Rules:
     usedAnglesRef.current = new Set();
     reactionHistoryRef.current = [];
     usedTranscriptOffsets.current.clear();
-    setCurrentTime(0);
+    transcriptRef.current = "";
     currentTimeRef.current = 0;
     setSelectedVideo(null);
     selectedVideoRef.current = null;
@@ -503,13 +660,9 @@ Rules:
     usedAnglesRef.current = new Set();
     reactionHistoryRef.current = [];
     usedTranscriptOffsets.current.clear();
-    setCurrentTime(0);
     currentTimeRef.current = 0;
 
-    fetch(`/api/transcript?id=${video.id}`)
-      .then(r => r.json())
-      .then(d => setTranscript(d.transcript ?? null))
-      .catch(() => {});
+    fetchAndStoreTranscript(video.id);
 
     addMessage({ role: "system", content: `Now playing "${decodeHtml(video.title)}"`, time: getTime() });
     onSessionUpdate?.({ type: "video_started", title: video.title, channel: video.channel });
@@ -538,34 +691,51 @@ Rules:
   }
 
   // ── USER SENDS MESSAGE ───────────────────────────────────────────────────
-  async function sendMessage() {
-    if (!input.trim() || blockingRef.current) return;
+  async function sendMessage(stickerName?: string) {
+    const hasContent = input.trim() || stickerName || ltAttachedImage;
+    if (!hasContent || blockingRef.current || ltCooldown) return;
+    setLtCooldown(true);
+    setTimeout(() => setLtCooldown(false), 4000);
     const text = input.trim();
+    const imageUrl = ltAttachedImage;
     setInput("");
-    addMessage({ role: "user", content: text, time: getTime() });
+    setLtAttachedImage(null);
+    setLtShowStickers(false);
+
+    // Add user message to chat
+    addMessage({ role: "user", content: text, time: getTime(), ...(stickerName ? { stickerName } : {}), ...(imageUrl ? { imageUrl } : {}) } as any);
+
     const ct = currentTimeRef.current;
     const video = selectedVideoRef.current;
     const videoTitle = decodeHtml(video?.title ?? "this video");
-    const timeStr = ct > 0
-      ? ` at ${Math.floor(ct / 60)}:${String(ct % 60).padStart(2, "0")}`
-      : "";
+    const timeStr = ct > 0 ? ` at ${Math.floor(ct / 60)}:${String(ct % 60).padStart(2, "0")}` : "";
+
+    // Build user content for API
+    const userContent = stickerName
+      ? `[Listen Together — watching "${videoTitle}"${timeStr}]\n${playerName} sent a sticker: ${stickerName}${text ? ` — ${text}` : ""}`
+      : `[Listen Together — watching "${videoTitle}"${timeStr}]\n${text}`;
+
+    const apiMessages: any[] = [
+      ...messagesRef.current.filter(m => m.role !== "system").slice(-8).map(m => ({ role: m.role, content: m.content })),
+      imageUrl
+        ? { role: "user", content: [{ type: "text", text: userContent }, { type: "image_url", image_url: { url: imageUrl } }] }
+        : { role: "user", content: userContent },
+    ];
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [
-            ...messagesRef.current.filter(m => m.role !== "system").slice(-8).map(m => ({ role: m.role, content: m.content })),
-            { role: "user", content: `[Listen Together — watching "${videoTitle}"${timeStr}] ${text}` },
-          ],
+          messages: apiMessages,
           character: characterKey,
           playerName,
           playerKey,
           listenTogether: true,
+          ltTranscript: transcriptRef.current || null,
+          ltCurrentTime: ct,
         }),
       });
-
       const reply = await res.json();
 
       if (reply.annoyanceDelta && !blockingRef.current) {
@@ -612,12 +782,12 @@ Rules:
   // ── CHAT MESSAGES UI ─────────────────────────────────────────────────────
   const chatMessages = (
     <div style={{ flex: 1, overflowY: "auto", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-      {messages.length === 0 && (
+      {sharedMessages.length === 0 && (
         <p style={{ color: "#555", fontSize: 12, textAlign: "center", marginTop: 16 }}>
           Invite {characterName} to listen together
         </p>
       )}
-      {messages.map((m, i) => {
+      {sharedMessages.map((m, i) => {
         if (m.role === "system") return (
           <div key={i} style={{ textAlign: "center", padding: "2px 0" }}>
             <span style={{ fontSize: 11, color: "#555", fontStyle: "italic" }}>{m.content}</span>
@@ -654,20 +824,99 @@ Rules:
   );
 
   // ── CHAT INPUT ───────────────────────────────────────────────────────────
+  const MAX_CHARS = 200;
+  const charsLeft = MAX_CHARS - input.length;
+  const ltInputDisabled = (phase !== "playing" && phase !== "ended") || ltCooldown;
+
+  // Group stickers by folder
+  const stickerGroups = ltStickers.reduce((acc: Record<string, string[]>, s) => {
+    const folder = s.includes("/") ? s.split("/")[0] : "general";
+    (acc[folder] = acc[folder] || []).push(s);
+    return acc;
+  }, {});
+
   const chatInput = (
-    <div style={{ padding: "8px 12px", borderTop: "1px solid rgba(255,255,255,0.07)", display: "flex", gap: 8, background: "#1a1b24", flexShrink: 0 }}>
-      <input value={input} onChange={e => setInput(e.target.value)}
-        onKeyDown={e => e.key === "Enter" && sendMessage()}
-        placeholder={phase === "playing" || phase === "ended" ? "React to the video..." : "..."}
-        disabled={phase !== "playing" && phase !== "ended"}
-        style={{ flex: 1, background: "#22232e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "7px 12px", color: "#e8e8ee", fontSize: 12, outline: "none", fontFamily: "inherit", opacity: (phase !== "playing" && phase !== "ended") ? 0.4 : 1 }} />
-      <button onClick={sendMessage} disabled={(phase !== "playing" && phase !== "ended") || !input.trim()}
-        style={{ width: 30, height: 30, borderRadius: 8, background: input.trim() && (phase === "playing" || phase === "ended") ? characterColor : "rgba(255,255,255,0.08)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-          <path d="M22 2L11 13" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-          <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
+    <div style={{ padding: "8px 12px", borderTop: "1px solid rgba(255,255,255,0.07)", background: "#1a1b24", flexShrink: 0, position: "relative" }}>
+
+      {/* Sticker picker */}
+      {ltShowStickers && (
+        <div ref={ltStickerPickerRef} style={{ position: "absolute", bottom: "100%", left: 12, right: 12, background: "#1e1f2a", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: 8, maxHeight: 200, overflowY: "auto", zIndex: 50 }}>
+          {Object.entries(stickerGroups).map(([folder, stickers]) => (
+            <div key={folder}>
+              <p style={{ color: "#888", fontSize: 10, margin: "4px 0 4px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{folder}</p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {stickers.map(s => (
+                  <button key={s} onClick={() => sendMessage(s)} title={s.split("/").pop() ?? s}
+                    style={{ width: 44, height: 44, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, cursor: "pointer", padding: 2, overflow: "hidden" }}>
+                    <img src={`/stickers/${s}.png`} onError={e => { (e.target as HTMLImageElement).src = `/stickers/${s}.gif`; }}
+                      style={{ width: "100%", height: "100%", objectFit: "contain" }} alt={s} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          {ltStickers.length === 0 && <p style={{ color: "#666", fontSize: 11, textAlign: "center", padding: 8 }}>No stickers available</p>}
+        </div>
+      )}
+
+      {/* Image preview */}
+      {ltAttachedImage && (
+        <div style={{ marginBottom: 6, position: "relative", display: "inline-block" }}>
+          <img src={ltAttachedImage} style={{ maxHeight: 60, maxWidth: 120, borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)" }} alt="attached" />
+          <button onClick={() => setLtAttachedImage(null)}
+            style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, borderRadius: "50%", background: "#e04040", border: "none", cursor: "pointer", color: "white", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        {/* Sticker button */}
+        <button onClick={() => setLtShowStickers(s => !s)} disabled={ltInputDisabled}
+          title="Stickers"
+          style={{ width: 28, height: 28, borderRadius: 6, background: ltShowStickers ? `${characterColor}40` : "rgba(255,255,255,0.06)", border: `1px solid ${ltShowStickers ? characterColor : "rgba(255,255,255,0.1)"}`, cursor: ltInputDisabled ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: ltInputDisabled ? 0.4 : 1 }}>
+          <span style={{ fontSize: 14 }}>😊</span>
+        </button>
+
+        {/* Photo upload */}
+        <button onClick={() => !ltInputDisabled && ltFileInputRef.current?.click()} disabled={ltInputDisabled}
+          title="Upload photo"
+          style={{ width: 28, height: 28, borderRadius: 6, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", cursor: ltInputDisabled ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: ltInputDisabled ? 0.4 : 1 }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+          </svg>
+        </button>
+        <input ref={ltFileInputRef} type="file" accept="image/*" style={{ display: "none" }}
+          onChange={e => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => setLtAttachedImage(ev.target?.result as string);
+            reader.readAsDataURL(file);
+            e.target.value = "";
+          }} />
+
+        <input
+          value={input}
+          maxLength={MAX_CHARS}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && sendMessage()}
+          placeholder={ltCooldown ? "wait a moment..." : phase === "playing" || phase === "ended" ? "React to the video..." : "..."}
+          disabled={ltInputDisabled}
+          style={{ flex: 1, background: "#22232e", border: `1px solid ${charsLeft <= 20 ? "#e04040" : "rgba(255,255,255,0.1)"}`, borderRadius: 8, padding: "7px 10px", color: "#e8e8ee", fontSize: 12, outline: "none", fontFamily: "inherit", opacity: ltInputDisabled ? 0.4 : 1 }} />
+
+        <button onClick={() => sendMessage()} disabled={ltInputDisabled || (!input.trim() && !ltAttachedImage)}
+          style={{ width: 30, height: 30, borderRadius: 8, background: (!ltInputDisabled && (input.trim() || ltAttachedImage)) ? characterColor : "rgba(255,255,255,0.08)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+            <path d="M22 2L11 13" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+            <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+
+      {(phase === "playing" || phase === "ended") && charsLeft <= 20 && (
+        <p style={{ margin: "3px 0 0", textAlign: "right", fontSize: 10, color: "#e04040" }}>
+          {charsLeft}/{MAX_CHARS}
+        </p>
+      )}
     </div>
   );
 
@@ -771,6 +1020,21 @@ Rules:
                   {chatInput}
                 </div>
               </>
+            ) : phase === "waiting" ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
+                {selectedVideo && (
+                  <div style={{ padding: "10px 12px", background: "#13141c", flexShrink: 0, display: "flex", gap: 10, alignItems: "center" }}>
+                    <img src={selectedVideo.thumbnail} alt="" style={{ width: 52, height: 38, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} />
+                    <div style={{ overflow: "hidden" }}>
+                      <p style={{ color: "#e8e8ee", fontSize: 11, margin: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{decodeHtml(selectedVideo.title)}</p>
+                      <p style={{ color: "#888", fontSize: 10, margin: "2px 0 0" }}>Waiting for response...</p>
+                    </div>
+                  </div>
+                )}
+                <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
+                  {chatMessages}
+                </div>
+              </div>
             ) : (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                 {searchPanel}
@@ -794,7 +1058,7 @@ Rules:
                     </div>
                   )}
                 </div>
-              ) : searchPanel /* shows for "search", "waiting", AND "ended" */}
+              ) : searchPanel }
             </div>
             <div style={{ flex: "0 0 44%", display: "flex", flexDirection: "column", minHeight: 0 }}>
               {chatMessages}

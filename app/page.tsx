@@ -31,33 +31,6 @@ const PHROLOVA_SONG = [
 const ALL_CHARACTERS = [
   { key: "rover_m", name: "Male Rover",   avatar: "/avatars/rover_m.png" },
   { key: "rover_f", name: "Female Rover", avatar: "/avatars/rover_f.png" },
-  // { key: "jiyan",       name: "Jiyan",         avatar: "/avatars/jiyan.png" },
-  // { key: "calcharo",    name: "Calcharo",      avatar: "/avatars/calcharo.png" },
-  // { key: "yinlin",      name: "Yinlin",        avatar: "/avatars/yinlin.png" },
-  // { key: "changli",     name: "Changli",       avatar: "/avatars/changli.png" },
-  // { key: "jinhsi",      name: "Jinhsi",        avatar: "/avatars/jinhsi.png" },
-  // { key: "camellya",    name: "Camellya",      avatar: "/avatars/camellya.png" },
-  // { key: "carlotta",    name: "Carlotta",      avatar: "/avatars/carlotta.png" },
-  // { key: "shorekeeper", name: "Shorekeeper",   avatar: "/avatars/shorekeeper.png" },
-  // { key: "phoebe",      name: "Phoebe",        avatar: "/avatars/phoebe.png" },
-  // { key: "roccia",      name: "Roccia",        avatar: "/avatars/roccia.png" },
-  // { key: "cartethyia",  name: "Cartethyia",    avatar: "/avatars/cartethyia.png" },
-  // { key: "ciaccona",    name: "Ciaccona",      avatar: "/avatars/ciaccona.png" },
-  // { key: "zani",        name: "Zani",          avatar: "/avatars/zani.png" },
-  // { key: "verina",      name: "Verina",        avatar: "/avatars/verina.png" },
-  // { key: "encore",      name: "Encore",        avatar: "/avatars/encore.png" },
-  // { key: "sanhua",      name: "Sanhua",        avatar: "/avatars/sanhua.png" },
-  // { key: "danjin",      name: "Danjin",        avatar: "/avatars/danjin.png" },
-  // { key: "lingyang",    name: "Lingyang",      avatar: "/avatars/lingyang.png" },
-  // { key: "xiangli",     name: "Xiangli Yao",   avatar: "/avatars/xiangli.png" },
-  // { key: "zhezhi",      name: "Zhezhi",        avatar: "/avatars/zhezhi.png" },
-  // { key: "cantarella",  name: "Cantarella",    avatar: "/avatars/cantarella.png" },
-  // { key: "lupa",        name: "Lupa",          avatar: "/avatars/lupa.png" },
-  // { key: "phrolova",    name: "Phrolova",      avatar: "/avatars/phrolova.png" },
-  // { key: "chisa",       name: "Chisa",         avatar: "/avatars/chisa.png" },
-  // { key: "iuno",        name: "Iuno",          avatar: "/avatars/iuno.png" },
-  // { key: "lynae",       name: "Lynae",         avatar: "/avatars/lynae.png" },
-  // { key: "aemeath",     name: "Aemeath",       avatar: "/avatars/aemeath.png" },
 ];
 
 const CHAT_CHARACTERS: Record<string, { name: string; color: string; avatar: string; title: string; annoyanceThreshold: number; annoyanceBlockMessage: string }> = {
@@ -81,14 +54,6 @@ type Message = {
   ltInviteTitle?: string;
   ltInviteChannel?: string;
   ltInviteAccepted?: boolean; // undefined=pending, true=accepted, false=declined
-};
-
-// Shared context about the active LT session — kept in a ref so normal chat always knows
-type LTSessionContext = {
-  active: boolean;
-  videoTitle: string;
-  videoChannel: string;
-  recentReactions: string[]; // last 3 AI reactions
 };
 
 function decodeHtml(str: string): string {
@@ -189,35 +154,111 @@ function LTInviteBubble({
 }) {
   const pending = msg.ltInviteAccepted === undefined;
   const accepted = msg.ltInviteAccepted === true;
+  
   return (
     <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "flex-end", marginBottom: 6 }}>
       <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
         <Avatar src={charAvatar} name={charName} size={30} color={charColor} />
       </div>
-      <div style={{ background: "#fff", borderRadius: 12, padding: "10px 14px", boxShadow: "0 1px 3px rgba(0,0,0,0.10)", maxWidth: "72%", border: `1px solid ${charColor}33` }}>
+      <div style={{ 
+        background: "#fff", 
+        borderRadius: 12, 
+        padding: "12px 16px", 
+        boxShadow: "0 2px 8px rgba(0,0,0,0.15)", 
+        maxWidth: "72%", 
+        border: `2px solid ${charColor}`,
+        position: "relative"
+      }}>
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7 }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path d="M9 18V5l12-2v13" stroke={charColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             <circle cx="6" cy="18" r="3" stroke={charColor} strokeWidth="2"/>
             <circle cx="18" cy="16" r="3" stroke={charColor} strokeWidth="2"/>
           </svg>
-          <span style={{ color: charColor, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>Listen Together</span>
+          <span style={{ color: charColor, fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>LISTEN TOGETHER INVITE</span>
         </div>
+        
         {/* Video info */}
-        <p style={{ color: "#1e2030", fontSize: 12, fontWeight: 600, margin: "0 0 2px" }}>{msg.ltInviteTitle ?? "a video"}</p>
-        {msg.ltInviteChannel && <p style={{ color: "#888", fontSize: 11, margin: "0 0 8px" }}>{msg.ltInviteChannel}</p>}
+        <p style={{ color: "#1e2030", fontSize: 14, fontWeight: 700, margin: "0 0 4px" }}>
+          {msg.ltInviteTitle || "Join me watching a video"}
+        </p>
+        {msg.ltInviteChannel && (
+          <p style={{ color: "#666", fontSize: 12, margin: "0 0 12px" }}>
+            📺 {msg.ltInviteChannel}
+          </p>
+        )}
+        
         {/* Spoken text (if any) */}
-        {msg.content && <p style={{ color: "#555", fontSize: 12, margin: "0 0 10px", fontStyle: "italic" }}>{msg.content}</p>}
+        {msg.content && (
+          <p style={{ 
+            color: "#444", 
+            fontSize: 13, 
+            margin: "0 0 16px", 
+            fontStyle: "italic",
+            padding: "8px 12px",
+            background: "#f5f5f5",
+            borderRadius: 8,
+            borderLeft: `3px solid ${charColor}`
+          }}>
+            "{msg.content}"
+          </p>
+        )}
+        
         {/* Buttons */}
         {pending ? (
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={onAccept} style={{ flex: 1, padding: "6px 0", borderRadius: 7, background: charColor, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Join</button>
-            <button onClick={onDecline} style={{ flex: 1, padding: "6px 0", borderRadius: 7, background: "rgba(0,0,0,0.07)", border: "none", color: "#888", fontSize: 12, cursor: "pointer" }}>Decline</button>
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button 
+              onClick={onAccept} 
+              style={{ 
+                flex: 1, 
+                padding: "8px 0", 
+                borderRadius: 8, 
+                background: charColor, 
+                border: "none", 
+                color: "#fff", 
+                fontSize: 13, 
+                fontWeight: 700, 
+                cursor: "pointer",
+                transition: "all 0.2s",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.2)"
+              }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = "0.9")}
+              onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+            >
+              🎵 Join Session
+            </button>
+            <button 
+              onClick={onDecline} 
+              style={{ 
+                flex: 1, 
+                padding: "8px 0", 
+                borderRadius: 8, 
+                background: "#f0f0f0", 
+                border: "1px solid #ddd", 
+                color: "#666", 
+                fontSize: 13, 
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = "#e5e5e5")}
+              onMouseLeave={e => (e.currentTarget.style.background = "#f0f0f0")}
+            >
+              ✗ Not Now
+            </button>
           </div>
         ) : (
-          <p style={{ fontSize: 11, margin: 0, color: accepted ? charColor : "#bbb", fontStyle: "italic" }}>
-            {accepted ? "✓ You joined" : "✗ Declined"}
+          <p style={{ 
+            fontSize: 12, 
+            margin: "8px 0 0", 
+            color: accepted ? charColor : "#999", 
+            fontStyle: "italic",
+            textAlign: "center",
+            padding: "4px",
+            background: accepted ? `${charColor}10` : "#f5f5f5",
+            borderRadius: 4
+          }}>
+            {accepted ? "✓ You've joined the session" : "✗ Invite declined"}
           </p>
         )}
       </div>
@@ -225,114 +266,54 @@ function LTInviteBubble({
   );
 }
 
-// ── Active Users Counter Component ────────────────────────────────────────
+// ── Active Users Counter ──────────────────────────────────────────────────
 function ActiveUsersCounter() {
   const [activeCount, setActiveCount] = useState<number>(1);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected'>('connected');
+  const [connectionStatus, setConnectionStatus] = useState<"connected" | "disconnected">("connected");
 
   useEffect(() => {
     let eventSource: EventSource | null = null;
     let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
-    
     const connectSSE = () => {
       try {
-        eventSource = new EventSource('/api/active-users');
-        
+        eventSource = new EventSource("/api/active-users");
         eventSource.onopen = () => {
-          setConnectionStatus('connected');
-          if (reconnectTimeout) {
-            clearTimeout(reconnectTimeout);
-            reconnectTimeout = null;
-          }
+          setConnectionStatus("connected");
+          if (reconnectTimeout) { clearTimeout(reconnectTimeout); reconnectTimeout = null; }
         };
-        
         eventSource.onmessage = (event) => {
           try {
-            // Ignore ping messages (they start with ':')
-            if (event.data && !event.data.startsWith(':')) {
+            if (event.data && !event.data.startsWith(":")) {
               const data = JSON.parse(event.data);
-              if (typeof data.count === 'number') {
-                setActiveCount(data.count);
-              }
+              if (typeof data.count === "number") setActiveCount(data.count);
             }
-          } catch (e) {
-            console.error('Failed to parse SSE message:', e);
-          }
+          } catch {}
         };
-        
         eventSource.onerror = () => {
-          setConnectionStatus('disconnected');
+          setConnectionStatus("disconnected");
           eventSource?.close();
-          
-          // Attempt to reconnect after 3 seconds
           if (!reconnectTimeout) {
-            reconnectTimeout = setTimeout(() => {
-              reconnectTimeout = null;
-              connectSSE();
-            }, 3000);
+            reconnectTimeout = setTimeout(() => { reconnectTimeout = null; connectSSE(); }, 3000);
           }
         };
-      } catch (error) {
-        console.error('Failed to create EventSource:', error);
-      }
+      } catch {}
     };
-    
     connectSSE();
-    
-    return () => {
-      if (eventSource) {
-        eventSource.close();
-      }
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-      }
-    };
+    return () => { eventSource?.close(); if (reconnectTimeout) clearTimeout(reconnectTimeout); };
   }, []);
 
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      marginLeft: 'auto',
-      marginRight: 8,
-      padding: '4px 8px',
-      background: 'rgba(255,255,255,0.06)',
-      borderRadius: 20,
-      border: '1px solid rgba(200,168,48,0.15)',
-    }}>
-      <div style={{
-        width: 8,
-        height: 8,
-        borderRadius: '50%',
-        background: connectionStatus === 'connected' ? '#4ade80' : '#f87171',
-        animation: connectionStatus === 'connected' ? 'pulse 2s infinite' : 'none',
-      }} />
-      
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c8a830" strokeWidth="2">
-          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" strokeLinecap="round"/>
-          <circle cx="9" cy="7" r="4"/>
-          <path d="M23 21v-2a4 4 0 0 0-3-3.87" strokeLinecap="round"/>
-          <path d="M16 3.13a4 4 0 0 1 0 7.75" strokeLinecap="round"/>
-        </svg>
-        <span style={{
-          color: '#e8e8ee',
-          fontSize: 12,
-          fontWeight: 600,
-          minWidth: 24,
-          textAlign: 'center',
-        }}>
-          {activeCount}
-        </span>
-      </div>
-
-      <span style={{
-        color: connectionStatus === 'connected' ? '#9a9cb0' : '#f87171',
-        fontSize: 10,
-        cursor: 'help',
-      }}>
-        {connectionStatus === 'connected' ? 'online' : 'offline'}
+    <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 8px", background: "rgba(255,255,255,0.06)", borderRadius: 20, border: "1px solid rgba(200,168,48,0.15)" }}>
+      <div style={{ width: 7, height: 7, borderRadius: "50%", background: connectionStatus === "connected" ? "#4ade80" : "#f87171", animation: connectionStatus === "connected" ? "pulse 2s infinite" : "none" }} />
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c8a830" strokeWidth="2">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" strokeLinecap="round"/>
+        <circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" strokeLinecap="round"/>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" strokeLinecap="round"/>
+      </svg>
+      <span style={{ color: "#e8e8ee", fontSize: 11, fontWeight: 600 }}>{activeCount}</span>
+      <span style={{ color: connectionStatus === "connected" ? "#9a9cb0" : "#f87171", fontSize: 10 }}>
+        {connectionStatus === "connected" ? "online" : "offline"}
       </span>
     </div>
   );
@@ -347,6 +328,12 @@ export default function Home() {
   const [unblockLoading, setUnblockLoading] = useState(false);
   const [annoyance, setAnnoyance] = useState<Record<string, number>>({});
   const [showListenTogether, setShowListenTogether] = useState(false);
+  const [ltDeclineCooldown, setLtDeclineCooldown] = useState(0);
+  const [ltInviteVideoId, setLtInviteVideoId] = useState<string | null>(null);
+  const [ltInviteTitle, setLtInviteTitle] = useState<string | null>(null);
+  const [ltInviteChannel, setLtInviteChannel] = useState<string | null>(null);
+  
+  const ltCooldownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [allMessages, setAllMessages] = useState<Record<string, Message[]>>({});
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -373,8 +360,8 @@ export default function Home() {
   const [isMobile, setIsMobile] = useState(false);
   const [mobileView, setMobileView] = useState<"sidebar" | "chat">("sidebar");
 
-  // ── LT session context — persists in a ref so no re-renders needed ────────
-  const ltSessionRef = useRef<Record<string, LTSessionContext>>({});
+  // ── LT session cleanup ────────────────────────────────────────────────────
+  const ltSessionRef = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 600);
@@ -388,56 +375,24 @@ export default function Home() {
     document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  // ── Receive events from the LT component ─────────────────────────────────
   function handleSessionUpdate(chatKey: string, event: SessionEvent) {
-    if (event.type === "video_started") {
-      ltSessionRef.current[chatKey] = {
-        active: true,
-        videoTitle: event.title,
-        videoChannel: event.channel,
-        recentReactions: [],
-      };
-      setAllMessages(prev => ({
-        ...prev,
-        [chatKey]: [...(prev[chatKey] ?? []), {
-          role: "system",
-          content: `🎵 Now watching "${decodeHtml(event.title)}" together`,
-          time: getTime(),
-        }],
-      }));
-    }
-    if (event.type === "reaction") {
-      const ctx = ltSessionRef.current[chatKey];
-      if (ctx) ctx.recentReactions = [...ctx.recentReactions, event.text].slice(-3);
-    }
-    if (event.type === "video_ended") {
-      const ctx = ltSessionRef.current[chatKey];
-      if (ctx) ctx.active = false;
-      setAllMessages(prev => ({
-        ...prev,
-        [chatKey]: [...(prev[chatKey] ?? []), {
-          role: "system",
-          content: `🎵 Finished watching "${decodeHtml(event.title)}"`,
-          time: getTime(),
-        }],
-      }));
-    }
     if (event.type === "session_ended") {
       delete ltSessionRef.current[chatKey];
     }
   }
 
-  // ── Build LT context string appended to every normal chat API call ────────
-  function getLTContext(chatKey: string): string {
-    const ctx = ltSessionRef.current[chatKey];
-    if (!ctx) return "";
-    const reactionLines = ctx.recentReactions.length > 0
-      ? `\nYour recent reactions:\n${ctx.recentReactions.map(r => `- "${r}"`).join("\n")}`
-      : "";
-    if (ctx.active) {
-      return `\n\n[LISTEN TOGETHER IN PROGRESS — currently watching "${ctx.videoTitle}" by ${ctx.videoChannel} together via WavesLine. Reference it naturally if the user brings it up.${reactionLines}]`;
-    }
-    return `\n\n[LISTEN TOGETHER — recently finished watching "${ctx.videoTitle}" by ${ctx.videoChannel} together. You can reference what you watched if it comes up.${reactionLines}]`;
+  function startLTCooldown(seconds = 60) {
+    setLtDeclineCooldown(seconds);
+    if (ltCooldownTimer.current) clearInterval(ltCooldownTimer.current);
+    ltCooldownTimer.current = setInterval(() => {
+      setLtDeclineCooldown(prev => {
+        if (prev <= 1) {
+          clearInterval(ltCooldownTimer.current!);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
   }
 
   const gifDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -453,145 +408,297 @@ export default function Home() {
   }
 
   async function triggerAIReply(chatKey: string, messages: Message[]) {
-    if (!player) return;
-    setTypingFor(chatKey); setLoading(true);
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: messages.map(({ role, content, imageUrl, stickerName, gifUrl, gifCaption }) => ({ role, content, imageUrl, stickerName, gifUrl, gifCaption })),
-          character: chatKey,
-          playerName: player.name,
-          playerKey: player.key,
-          // Inject LT session context so normal chat AI is aware of what's playing
-          ltContext: getLTContext(chatKey),
-        }),
-      });
-      const reply = await res.json();
-
-      // ── Detect AI-initiated LT invite ─────────────────────────────────────
-      // The character file can include [LISTEN_TOGETHER:videoId:Title:Channel] in a reply
-      // to invite the user to watch something together.
-      const rawContent: string = reply.messages?.[0]?.content ?? reply.content ?? "";
-      const ltMatch = rawContent.match(/\[LISTEN_TOGETHER:([^:\]]+):([^:\]]+):([^\]]*)\]/);
-
-      if (ltMatch) {
-        const [fullTag, videoId, title, channel] = ltMatch;
-        const spokenText = rawContent.replace(fullTag, "").trim();
-        // Spoken text before/after the tag becomes a normal bubble
-        if (spokenText) {
-          setAllMessages(prev => ({
-            ...prev,
-            [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: spokenText, time: getTime() }],
-          }));
-        }
-        // Invite bubble
-        setAllMessages(prev => ({
-          ...prev,
-          [chatKey]: [...(prev[chatKey] ?? []), {
-            role: "assistant", content: "", time: getTime(),
-            isLTInvite: true,
-            ltInviteVideoId: videoId.trim(),
-            ltInviteTitle: decodeHtml(title.trim()),
-            ltInviteChannel: decodeHtml(channel.trim()),
-            ltInviteAccepted: undefined,
-          }],
-        }));
-        setTypingFor(null); setLoading(false);
-        return;
-      }
-
-      // Normal reply
-      const replyMsgs: { content: string; gifUrl?: string; stickerName?: string }[] =
-        reply.messages ?? [{ content: reply.content, gifUrl: reply.gifUrl, stickerName: reply.stickerName }];
-      for (let i = 0; i < replyMsgs.length; i++) {
-        if (i > 0) await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
-        const m = replyMsgs[i];
-        setAllMessages(prev => ({
-          ...prev,
-          [chatKey]: [...(prev[chatKey] ?? []), {
-            role: "assistant", content: m.content ?? "", time: getTime(),
-            gifUrl: m.gifUrl ?? undefined, stickerName: m.stickerName ?? undefined,
-          }],
-        }));
-      }
-
-      if (activeChatRef.current !== chatKey) {
-        setUnread(prev => ({ ...prev, [chatKey]: true }));
-        const last = replyMsgs[replyMsgs.length - 1]?.content ?? "";
-        setToast({ key: chatKey, name: CHAT_CHARACTERS[chatKey]?.name || chatKey, preview: last.length > 30 ? last.slice(0, 30) + "…" : last || "New message" });
-        if (toastTimer.current) clearTimeout(toastTimer.current);
-        toastTimer.current = setTimeout(() => setToast(null), 4000);
-      }
-
-      // Handle annoyance delta
-      if (reply.annoyanceDelta != null && !blockedChats[chatKey]) {
-        const char = CHAT_CHARACTERS[chatKey];
-        const threshold = char?.annoyanceThreshold ?? 100;
-        const blockMsg = char?.annoyanceBlockMessage ?? "I have had enough.";
-        setAnnoyance(prev => {
-          const current = prev[chatKey] ?? 0;
-          const next = Math.min(100, Math.max(0, current + reply.annoyanceDelta));
-          console.log(`[annoyance] ${chatKey}: ${current} + ${reply.annoyanceDelta} = ${next} / ${threshold}`);
-          if (next >= threshold) {
-            if (blockingRef.current[chatKey]) return { ...prev, [chatKey]: next };
-            blockingRef.current[chatKey] = true;
-            setTimeout(async () => {
-              await new Promise(r => setTimeout(r, 400));
-              setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: blockMsg, time: getTime() }] }));
-              await new Promise(r => setTimeout(r, 600));
-              setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: "[has blocked you]", time: getTime(), isBlock: true }] }));
-              setBlockedChats(p => ({ ...p, [chatKey]: true }));
-            }, 0);
-            return { ...prev, [chatKey]: 0 };
+  if (!player) return;
+  setTypingFor(chatKey); 
+  setLoading(true);
+  
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST", 
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: messages.map(({ role, content, imageUrl, stickerName, gifUrl, gifCaption }) => ({ 
+          role, 
+          content, 
+          imageUrl, 
+          stickerName, 
+          gifUrl, 
+          gifCaption 
+        })),
+        character: chatKey,
+        playerName: player.name,
+        playerKey: player.key,
+      }),
+    });
+    
+    const reply = await res.json();
+    
+    const rawContent: string = reply.messages?.[0]?.content ?? reply.content ?? "";
+    
+    console.log('AI Reply received:', rawContent);
+    
+    const ltMatch = rawContent.match(/\[LISTEN_TOGETHER:([^\]]+)\]/);
+    
+    if (ltMatch) {
+      console.log('🎵 Listen Together invite detected!', ltMatch[1]);
+      
+      const parts = ltMatch[1].split(':');
+      
+      // Extract what the AI wants to show
+      let videoId = parts[0]?.trim();
+      let title = parts[1]?.trim() || '';
+      let channel = parts[2]?.trim() || '';
+      
+      const spokenText = rawContent.replace(ltMatch[0], '').trim();
+      
+      // If the video ID looks fake or we have a title, search for it
+      const isValidVideoId = videoId && 
+                            videoId.length === 11 && 
+                            /^[a-zA-Z0-9_-]+$/.test(videoId) &&
+                            !videoId.includes(' ') &&
+                            videoId !== 'dQw4w9WgXcQ'; // Avoid Rick Roll
+      
+      // If we have a title but invalid ID, search for it
+      if ((!isValidVideoId || videoId === 'dQw4w9WgXcQ') && title) {
+        console.log('Searching YouTube for:', title);
+        
+        try {
+          // Search YouTube for the video
+          const searchRes = await fetch(`/api/youtube?q=${encodeURIComponent(title)}`);
+          const searchData = await searchRes.json();
+          
+          if (searchData.results && searchData.results.length > 0) {
+            // Try to find the best match
+            let bestMatch = searchData.results[0];
+            
+            // If we have channel info, try to find a video from that channel
+            if (channel && channel !== 'YouTube') {
+              const channelMatch = searchData.results.find((v: any) => 
+                v.channel.toLowerCase().includes(channel.toLowerCase())
+              );
+              if (channelMatch) bestMatch = channelMatch;
+            }
+            
+            // Check if title contains keywords from search
+            const searchTerms = title.toLowerCase().split(' ');
+            for (const result of searchData.results) {
+              const resultTitle = result.title.toLowerCase();
+              const matchCount = searchTerms.filter(term => 
+                resultTitle.includes(term) && term.length > 3
+              ).length;
+              
+              if (matchCount >= 2) {
+                bestMatch = result;
+                break;
+              }
+            }
+            
+            videoId = bestMatch.id;
+            title = bestMatch.title;
+            channel = bestMatch.channel;
+            
+            console.log('Selected video:', { videoId, title, channel });
+          } else {
+            // No results found
+            console.log('No YouTube results found for:', title);
+            
+            // Show error message to user
+            if (spokenText) {
+              setAllMessages(prev => ({
+                ...prev,
+                [chatKey]: [...(prev[chatKey] ?? []), { 
+                  role: "assistant", 
+                  content: spokenText, 
+                  time: getTime() 
+                }],
+              }));
+            }
+            
+            setAllMessages(prev => ({
+              ...prev,
+              [chatKey]: [...(prev[chatKey] ?? []), {
+                role: "assistant",
+                content: "I tried to find that video but couldn't locate it. Maybe try searching yourself?",
+                time: getTime()
+              }],
+            }));
+            
+            setTypingFor(null);
+            setLoading(false);
+            return;
           }
-          return { ...prev, [chatKey]: next };
-        });
-      }
-
-      // Auto-play prebuilt song
-      if (reply.singSong && !blockingRef.current[chatKey + "_song"]) {
-        blockingRef.current[chatKey + "_song"] = true;
-        await new Promise(r => setTimeout(r, 600));
-        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "Fine.", time: getTime() }] }));
-        await new Promise(r => setTimeout(r, 800));
-        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "*begins to play*", time: getTime() }] }));
-        for (const line of PHROLOVA_SONG) {
-          await new Promise(r => setTimeout(r, 900 + Math.random() * 500));
-          setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: line, time: getTime() }] }));
+        } catch (error) {
+          console.error('Error searching YouTube:', error);
+          
+          // Fallback to a safe video
+          videoId = 'jfKfPfyJRdk'; // Lofi Girl - safe fallback
+          title = title || 'Study Music';
+          channel = 'Lofi Girl';
         }
-        await new Promise(r => setTimeout(r, 1200));
-        const updatedMsgs = [...messages, { role: "assistant" as const, content: "[just finished singing her song for you]" }];
-        await triggerAIReply(chatKey, updatedMsgs);
-        if (!blockingRef.current[chatKey]) {
-          blockingRef.current[chatKey] = true;
-          await new Promise(r => setTimeout(r, 800));
-          setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "[Phrolova has blocked you]", time: getTime(), isBlock: true }] }));
-          setBlockedChats(prev => ({ ...prev, [chatKey]: true }));
+      } else if (!title && videoId && isValidVideoId) {
+        // We have a valid video ID but no title, fetch video details
+        try {
+          const detailsRes = await fetch(`/api/video-details?id=${videoId}`);
+          const details = await detailsRes.json();
+          if (details.title) {
+            title = details.title;
+            channel = details.channel;
+          }
+        } catch (error) {
+          console.error('Error fetching video details:', error);
         }
-        blockingRef.current[chatKey + "_song"] = false;
-        return;
       }
-    } catch {
-      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "signal lost.", time: getTime() }] }));
+      
+      // Add the spoken text first if it exists
+      if (spokenText) {
+        setAllMessages(prev => ({
+          ...prev,
+          [chatKey]: [...(prev[chatKey] ?? []), { 
+            role: "assistant", 
+            content: spokenText, 
+            time: getTime() 
+          }],
+        }));
+        
+        await new Promise(r => setTimeout(r, 500));
+      }
+      
+      // Add the invite bubble
+      setAllMessages(prev => ({
+        ...prev,
+        [chatKey]: [...(prev[chatKey] ?? []), {
+          role: "assistant",
+          content: "",
+          time: getTime(),
+          isLTInvite: true,
+          ltInviteVideoId: videoId,
+          ltInviteTitle: decodeHtml(title || 'Join me watching a video'),
+          ltInviteChannel: decodeHtml(channel || 'YouTube'),
+          ltInviteAccepted: undefined,
+        }],
+      }));
+      
+      setTypingFor(null);
+      setLoading(false);
+      return;
     }
-    setTypingFor(null); setLoading(false);
-    setTimeout(() => inputRef.current?.focus(), 50);
+
+    // If no LT invite, handle normal reply
+    const replyMsgs: { content: string; gifUrl?: string; stickerName?: string }[] =
+      reply.messages ?? [{ content: reply.content, gifUrl: reply.gifUrl, stickerName: reply.stickerName }];
+    
+    for (let i = 0; i < replyMsgs.length; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
+      const m = replyMsgs[i];
+      setAllMessages(prev => ({
+        ...prev,
+        [chatKey]: [...(prev[chatKey] ?? []), {
+          role: "assistant", 
+          content: m.content ?? "", 
+          time: getTime(),
+          gifUrl: m.gifUrl ?? undefined, 
+          stickerName: m.stickerName ?? undefined,
+        }],
+      }));
+    }
+
+    if (activeChatRef.current !== chatKey) {
+      setUnread(prev => ({ ...prev, [chatKey]: true }));
+      const last = replyMsgs[replyMsgs.length - 1]?.content ?? "";
+      setToast({ key: chatKey, name: CHAT_CHARACTERS[chatKey]?.name || chatKey, preview: last.length > 30 ? last.slice(0, 30) + "…" : last || "New message" });
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      toastTimer.current = setTimeout(() => setToast(null), 4000);
+    }
+
+    // Handle annoyance delta
+    if (reply.annoyanceDelta != null && !blockedChats[chatKey]) {
+      const char = CHAT_CHARACTERS[chatKey];
+      const threshold = char?.annoyanceThreshold ?? 100;
+      const blockMsg = char?.annoyanceBlockMessage ?? "I have had enough.";
+      setAnnoyance(prev => {
+        const current = prev[chatKey] ?? 0;
+        const next = Math.min(100, Math.max(0, current + reply.annoyanceDelta));
+        console.log(`[annoyance] ${chatKey}: ${current} + ${reply.annoyanceDelta} = ${next} / ${threshold}`);
+        if (next >= threshold) {
+          if (blockingRef.current[chatKey]) return { ...prev, [chatKey]: next };
+          blockingRef.current[chatKey] = true;
+          setTimeout(async () => {
+            await new Promise(r => setTimeout(r, 400));
+            setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: blockMsg, time: getTime() }] }));
+            await new Promise(r => setTimeout(r, 600));
+            setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: "[has blocked you]", time: getTime(), isBlock: true }] }));
+            setBlockedChats(p => ({ ...p, [chatKey]: true }));
+          }, 0);
+          return { ...prev, [chatKey]: 0 };
+        }
+        return { ...prev, [chatKey]: next };
+      });
+    }
+
+    // Auto-play prebuilt song
+    if (reply.singSong && !blockingRef.current[chatKey + "_song"]) {
+      blockingRef.current[chatKey + "_song"] = true;
+      await new Promise(r => setTimeout(r, 600));
+      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "Fine.", time: getTime() }] }));
+      await new Promise(r => setTimeout(r, 800));
+      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "*begins to play*", time: getTime() }] }));
+      for (const line of PHROLOVA_SONG) {
+        await new Promise(r => setTimeout(r, 900 + Math.random() * 500));
+        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: line, time: getTime() }] }));
+      }
+      await new Promise(r => setTimeout(r, 1200));
+      const updatedMsgs = [...messages, { role: "assistant" as const, content: "[just finished singing her song for you]" }];
+      await triggerAIReply(chatKey, updatedMsgs);
+      if (!blockingRef.current[chatKey]) {
+        blockingRef.current[chatKey] = true;
+        await new Promise(r => setTimeout(r, 800));
+        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "[Phrolova has blocked you]", time: getTime(), isBlock: true }] }));
+        setBlockedChats(prev => ({ ...prev, [chatKey]: true }));
+      }
+      blockingRef.current[chatKey + "_song"] = false;
+      return;
+    }
+  } catch (error) {
+    console.error('Error in AI reply:', error);
+    setAllMessages(prev => ({ 
+      ...prev, 
+      [chatKey]: [...(prev[chatKey] ?? []), { 
+        role: "assistant", 
+        content: "signal lost.", 
+        time: getTime() 
+      }] 
+    }));
   }
+  setTypingFor(null); 
+  setLoading(false);
+  setTimeout(() => inputRef.current?.focus(), 50);
+}
 
   // ── Accept / decline AI-initiated LT invite ───────────────────────────────
   function acceptLTInvite(chatKey: string, msgIndex: number) {
+    console.log('Accepting LT invite for', chatKey);
+    
+    const msg = allMessages[chatKey]?.[msgIndex];
+    
     setAllMessages(prev => ({
       ...prev,
       [chatKey]: prev[chatKey].map((m, i) => i === msgIndex ? { ...m, ltInviteAccepted: true } : m),
     }));
+    
+    setLtInviteVideoId(msg?.ltInviteVideoId || null);
+    setLtInviteTitle(msg?.ltInviteTitle || null);
+    setLtInviteChannel(msg?.ltInviteChannel || null);
+    
     setShowListenTogether(true);
   }
+  
   function declineLTInvite(chatKey: string, msgIndex: number) {
+    console.log('Declining LT invite for', chatKey);
     setAllMessages(prev => ({
       ...prev,
       [chatKey]: prev[chatKey].map((m, i) => i === msgIndex ? { ...m, ltInviteAccepted: false } : m),
     }));
+    startLTCooldown(60);
   }
 
   async function requestUnblock() {
@@ -630,38 +737,51 @@ export default function Home() {
   }
 
   function addContact(key: string) {
-    setContacts(prev => [...prev, key]); setAllMessages(prev => ({ ...prev, [key]: [] }));
-    setActiveChat(key); setUnread(prev => ({ ...prev, [key]: false })); setShowAddContact(false);
+    setContacts(prev => [...prev, key]); 
+    setAllMessages(prev => ({ ...prev, [key]: [] }));
+    setActiveChat(key); 
+    setUnread(prev => ({ ...prev, [key]: false })); 
+    setShowAddContact(false);
     if (isMobile) setMobileView("chat");
   }
+  
   function openChat(key: string) {
-    setActiveChat(key); setUnread(prev => ({ ...prev, [key]: false }));
+    setActiveChat(key); 
+    setUnread(prev => ({ ...prev, [key]: false }));
     setToast(prev => prev?.key === key ? null : prev);
     if (isMobile) setMobileView("chat");
   }
+  
   async function sendMessage() {
     if ((!input.trim() && !attachedImage) || loading || !player || !activeChat) return;
     const chatKey = activeChat;
     const msg: Message = { role: "user", content: input, time: getTime(), ...(attachedImage ? { imageUrl: attachedImage.url } : {}) };
     const updated = [...(allMessages[chatKey] ?? []), msg];
-    setAllMessages(prev => ({ ...prev, [chatKey]: updated })); setInput(""); setAttachedImage(null);
+    setAllMessages(prev => ({ ...prev, [chatKey]: updated })); 
+    setInput(""); 
+    setAttachedImage(null);
     setTimeout(() => inputRef.current?.focus(), 100);
     triggerAIReply(chatKey, updated);
   }
+  
   function sendSticker(filename: string) {
     if (!activeChat || !player) return;
     const chatKey = activeChat;
     const msg: Message = { role: "user", content: "", time: getTime(), stickerName: filename };
     const updated = [...(allMessages[chatKey] ?? []), msg];
-    setAllMessages(prev => ({ ...prev, [chatKey]: updated })); setShowMediaPicker(false);
+    setAllMessages(prev => ({ ...prev, [chatKey]: updated })); 
+    setShowMediaPicker(false);
     triggerAIReply(chatKey, updated);
   }
+  
   function sendGifFromPicker(gifUrl: string) {
     if (!activeChat || !player || !gifCaption.trim()) return;
     const chatKey = activeChat;
     const msg: Message = { role: "user", content: "", time: getTime(), gifUrl, gifCaption: gifCaption.trim() };
     const updated = [...(allMessages[chatKey] ?? []), msg];
-    setAllMessages(prev => ({ ...prev, [chatKey]: updated })); setGifCaption(""); setShowMediaPicker(false);
+    setAllMessages(prev => ({ ...prev, [chatKey]: updated })); 
+    setGifCaption(""); 
+    setShowMediaPicker(false);
     triggerAIReply(chatKey, updated);
   }
 
@@ -688,19 +808,17 @@ export default function Home() {
   );
 
   return (
-    <div style={{ minHeight: "100dvh", display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "center", background: "#14151c", fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
+    <div style={{ minHeight: "100dvh", display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "center", background: "#14151c", fontFamily: "'Segoe UI',system-ui,sans-serif", position: "relative" }}>
       {showAddContact && <AddContactModal existing={contacts} onAdd={addContact} onCancel={() => setShowAddContact(false)} />}
 
       <div style={{ width: isMobile ? "100vw" : "min(820px,98vw)", height: isMobile ? "100dvh" : "min(560px,96vh)", borderRadius: isMobile ? 0 : 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 32px 80px rgba(0,0,0,0.9)", border: "1px solid rgba(255,255,255,0.05)" }}>
 
-        {/* TOP BAR - Added ActiveUsersCounter */}
-        <div style={{ height: 40, background: "#1e2028", display: "flex", alignItems: "center", padding: "0 14px", gap: 10, flexShrink: 0, borderBottom: "1px solid rgba(0,0,0,0.3)" }}>
+        {/* TOP BAR */}
+        <div style={{ height: 40, background: "#1e2028", display: "flex", alignItems: "center", padding: "0 14px", gap: 8, flexShrink: 0, borderBottom: "1px solid rgba(0,0,0,0.3)" }}>
           <div style={{ width: 22, height: 22, borderRadius: 6, background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><WavesLineLogo size={14} /></div>
           <span style={{ color: "#c8c9d0", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em" }}>WavesLine</span>
-          
-          {/* Active Users Counter - placed here */}
+          <div style={{ flex: 1 }} />
           <ActiveUsersCounter />
-          
           <button onClick={() => setPlayer(null)}
             style={{ display: "flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: "3px 10px 3px 5px", cursor: "pointer" }}
             onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
@@ -748,7 +866,7 @@ export default function Home() {
                   <button key={key} onClick={() => openChat(key)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", marginBottom: 3, borderRadius: 8, background: isActive ? "linear-gradient(90deg,#f0ede4,#e8e5da)" : "rgba(255,255,255,0.04)", border: "none", cursor: "pointer", textAlign: "left", boxShadow: isActive ? "inset 3px 0 0 #c8a830" : "none" }}
                     onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
                     onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}>
-                  <div style={{ position: "relative", flexShrink: 0 }}>
+                    <div style={{ position: "relative", flexShrink: 0 }}>
                       <div style={{ width: 36, height: 36, borderRadius: "50%", overflow: "hidden" }}><Avatar src={ch.avatar} name={ch.name} size={36} color={ch.color} /></div>
                       {(isTyping || hasUnread) && <div style={{ position: "absolute", top: -1, right: -1, width: 9, height: 9, borderRadius: "50%", background: isTyping ? "#c8a830" : "#e04040", border: "2px solid #2e3038", animation: isTyping ? "pulse 1s infinite" : "none" }} />}
                     </div>
@@ -789,16 +907,18 @@ export default function Home() {
                   <span style={{ color: "#1e2030", fontSize: 15, fontWeight: 700 }}>{activeChar.name}</span>
                   {typingFor === activeChat && <span style={{ color: "#888", fontSize: 11, fontStyle: "italic", marginLeft: 10 }}>typing...</span>}
                 </div>
-                <button onClick={() => setShowListenTogether(true)} title="Listen Together"
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#999", display: "flex", alignItems: "center", gap: 5, fontSize: 11, padding: "4px 8px", borderRadius: 6 }}
-                  onMouseEnter={e => { e.currentTarget.style.background = "rgba(0,0,0,0.07)"; e.currentTarget.style.color = activeChar.color; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#999"; }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <button
+                  onClick={() => !ltDeclineCooldown && setShowListenTogether(true)}
+                  title={ltDeclineCooldown ? `Cooldown: ${ltDeclineCooldown}s` : "Listen Together"}
+                  style={{ background: ltDeclineCooldown ? "rgba(0,0,0,0.06)" : `${activeChar.color}18`, border: `1px solid ${ltDeclineCooldown ? "rgba(0,0,0,0.1)" : activeChar.color + "50"}`, cursor: ltDeclineCooldown ? "not-allowed" : "pointer", color: ltDeclineCooldown ? "#aaa" : activeChar.color, display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 20, opacity: ltDeclineCooldown ? 0.6 : 1 }}
+                  onMouseEnter={e => { if (!ltDeclineCooldown) e.currentTarget.style.background = `${activeChar.color}30`; }}
+                  onMouseLeave={e => { if (!ltDeclineCooldown) e.currentTarget.style.background = `${activeChar.color}18`; }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
                     <path d="M9 18V5l12-2v13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                     <circle cx="6" cy="18" r="3" stroke="currentColor" strokeWidth="2"/>
                     <circle cx="18" cy="16" r="3" stroke="currentColor" strokeWidth="2"/>
                   </svg>
-                  <span>Listen Together</span>
+                  <span>{ltDeclineCooldown ? `Wait ${ltDeclineCooldown}s` : "Listen Together"}</span>
                 </button>
               </div>
 
@@ -809,24 +929,25 @@ export default function Home() {
                 </div>
 
                 {activeMsgs.map((m, i) => {
-                  if (m.role === "assistant" && !m.content && !m.gifUrl && !m.stickerName && !m.isLTInvite) return null;
-
-                  // System message
                   if (m.role === "system") return (
                     <div key={i} style={{ textAlign: "center", padding: "4px 16px" }}>
                       <span style={{ fontSize: 11, color: "#999", fontStyle: "italic" }}>{m.content}</span>
                     </div>
                   );
 
-                  // ── LT invite bubble ─────────────────────────────────────
-                  if (m.isLTInvite) return (
-                    <LTInviteBubble
-                      key={i} msg={m}
-                      charName={activeChar.name} charColor={activeChar.color} charAvatar={activeChar.avatar}
-                      onAccept={() => acceptLTInvite(activeChat, i)}
-                      onDecline={() => declineLTInvite(activeChat, i)}
-                    />
-                  );
+                  if (m.isLTInvite) {
+                    return (
+                      <LTInviteBubble
+                        key={i} 
+                        msg={m}
+                        charName={activeChar.name} 
+                        charColor={activeChar.color} 
+                        charAvatar={activeChar.avatar}
+                        onAccept={() => acceptLTInvite(activeChat, i)}
+                        onDecline={() => declineLTInvite(activeChat, i)}
+                      />
+                    );
+                  }
 
                   const isUser = m.role === "user";
                   const name = isUser ? player.name : activeChar.name;
@@ -904,7 +1025,7 @@ export default function Home() {
                         <div style={{ display: "flex", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
                           {(["stickers", "gif"] as const).map(tab => (
                             <button key={tab} onClick={() => setMediaTab(tab)}
-                              style={{ flex: 1, padding: "9px 0", background: "none", border: "none", cursor: "pointer", color: mediaTab === tab ? "#e8e8ee" : "#404258", fontSize: 11, fontWeight: mediaTab === tab ? 700 : 400, borderBottom: mediaTab === tab ? `2px solid ${activeChar.color}` : "2px solid transparent" }}>
+                              style={{ flex: 1, padding: "9px 0", background: "none", border: "none", cursor: "pointer", color: mediaTab === tab ? "#e8e8ee" : "#404258", fontSize: 11, fontWeight: mediaTab === tab ? 700 : 400, borderBottom: mediaTab === tab ? `2px solid ${activeChar?.color || "#c8a830"}` : "2px solid transparent" }}>
                               {tab === "stickers" ? "🎴 Stickers" : "🎞 GIF"}
                             </button>
                           ))}
@@ -917,7 +1038,7 @@ export default function Home() {
                               return (
                                 <button key={file} onClick={() => sendSticker(name)}
                                   style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 7, padding: 4, cursor: "pointer", aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center" }}
-                                  onMouseEnter={e => (e.currentTarget.style.background = activeChar.color + "22")}
+                                  onMouseEnter={e => (e.currentTarget.style.background = (activeChar?.color || "#c8a830") + "22")}
                                   onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
                                   <img src={`/stickers/${file}`} alt={name} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                                 </button>
@@ -932,7 +1053,7 @@ export default function Home() {
                                 placeholder="Search GIFs..." value={gifSearch} onChange={e => handleGifInput(e.target.value)} />
                             </div>
                             <div style={{ padding: "0 8px 5px", flexShrink: 0 }}>
-                              <input style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: `1px solid ${gifCaption.trim() ? activeChar.color + "80" : "rgba(255,255,255,0.08)"}`, borderRadius: 7, padding: "5px 9px", color: "#e8e8ee", fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+                              <input style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: `1px solid ${gifCaption.trim() ? (activeChar?.color || "#c8a830") + "80" : "rgba(255,255,255,0.08)"}`, borderRadius: 7, padding: "5px 9px", color: "#e8e8ee", fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
                                 placeholder="Describe your GIF (required)..." value={gifCaption} onChange={e => setGifCaption(e.target.value)} />
                               {!gifCaption.trim() && <p style={{ color: "#e04040", fontSize: 9, margin: "2px 0 0 2px" }}>Required</p>}
                             </div>
@@ -952,9 +1073,9 @@ export default function Home() {
                     )}
                   </div>
                   <button onClick={() => fileInputRef.current?.click()} disabled={loading}
-                    style={{ width: 32, height: 32, borderRadius: 7, background: attachedImage ? activeChar.color + "30" : "rgba(0,0,0,0.08)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    style={{ width: 32, height: 32, borderRadius: 7, background: attachedImage ? (activeChar?.color || "#c8a830") + "30" : "rgba(0,0,0,0.08)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke={attachedImage ? activeChar.color : "#777"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke={attachedImage ? (activeChar?.color || "#c8a830") : "#777"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   </button>
                   {blockedChats[activeChat!] ? (
@@ -968,8 +1089,11 @@ export default function Home() {
                   ) : (
                     <>
                       <input ref={inputRef}
-                        style={{ flex: 1, background: "#eaebec", border: "1px solid rgba(0,0,0,0.1)", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#1e2030", outline: "none", fontFamily: "inherit" }}
-                        value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()}
+                        style={{ flex: 1, background: "#eaebec", border: `1px solid ${input.length >= 180 ? "#e04040" : "rgba(0,0,0,0.1)"}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#1e2030", outline: "none", fontFamily: "inherit" }}
+                        value={input}
+                        maxLength={200}
+                        onChange={e => setInput(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && sendMessage()}
                         placeholder={`Message ${activeChar.name}...`} disabled={loading} />
                       <button onClick={sendMessage} disabled={loading || (!input.trim() && !attachedImage)}
                         style={{ width: 32, height: 32, borderRadius: 8, background: (input.trim() || attachedImage) ? "#1e2028" : "rgba(0,0,0,0.1)", border: "none", cursor: (input.trim() || attachedImage) ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
@@ -981,36 +1105,81 @@ export default function Home() {
                     </>
                   )}
                 </div>
+                {!blockedChats[activeChat!] && input.length >= 150 && (
+                  <p style={{ margin: "2px 0 0", textAlign: "right", fontSize: 10, color: input.length >= 180 ? "#e04040" : "#aaa" }}>
+                    {200 - input.length}/200
+                  </p>
+                )}
               </div>
             </>)}
           </div>
         </div>
       </div>
 
-      {/* Listen Together modal */}
+      {/* Listen Together Modal */}
       {showListenTogether && activeChar && player && (
-        <ListenTogether
-          characterKey={activeChat!}
-          characterName={activeChar.name}
-          characterColor={activeChar.color}
-          characterAvatar={activeChar.avatar}
-          playerName={player.name}
-          playerKey={player.key}
-          playerAvatar={player.avatar}
-          onClose={() => setShowListenTogether(false)}
-          onSessionUpdate={(event) => handleSessionUpdate(activeChat!, event)}
-          onBlock={async (blockMsg: string) => {
-            setShowListenTogether(false);
-            const chatKey = activeChat!;
-            await new Promise(r => setTimeout(r, 400));
-            setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: blockMsg, time: getTime() }] }));
-            await new Promise(r => setTimeout(r, 600));
-            setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: "[has blocked you]", time: getTime(), isBlock: true }] }));
-            setBlockedChats(p => ({ ...p, [chatKey]: true }));
-            blockingRef.current[chatKey] = true;
-            setAnnoyance(p => ({ ...p, [chatKey]: 0 }));
-          }}
-        />
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 9999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "rgba(0,0,0,0.7)",
+          backdropFilter: "blur(4px)"
+        }}>
+          <ListenTogether
+            characterKey={activeChat!}
+            characterName={activeChar.name}
+            characterColor={activeChar.color}
+            characterAvatar={activeChar.avatar}
+            playerName={player.name}
+            playerKey={player.key}
+            playerAvatar={player.avatar}
+            onClose={() => {
+              setShowListenTogether(false);
+              setLtInviteVideoId(null);
+              setLtInviteTitle(null);
+              setLtInviteChannel(null);
+            }}
+            onDecline={() => {
+              setShowListenTogether(false);
+              startLTCooldown(60);
+              setLtInviteVideoId(null);
+              setLtInviteTitle(null);
+              setLtInviteChannel(null);
+            }}
+            onSessionUpdate={(event) => handleSessionUpdate(activeChat!, event)}
+            sharedMessages={allMessages[activeChat!] ?? []}
+            onAddMessage={(msg) => {
+              const chatKey = activeChat!;
+              setAllMessages(prev => ({
+                ...prev,
+                [chatKey]: [...(prev[chatKey] ?? []), msg],
+              }));
+            }}
+            onBlock={async (blockMsg: string) => {
+              setShowListenTogether(false);
+              const chatKey = activeChat!;
+              await new Promise(r => setTimeout(r, 400));
+              setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: blockMsg, time: getTime() }] }));
+              await new Promise(r => setTimeout(r, 600));
+              setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: "[has blocked you]", time: getTime(), isBlock: true }] }));
+              setBlockedChats(p => ({ ...p, [chatKey]: true }));
+              blockingRef.current[chatKey] = true;
+              setAnnoyance(p => ({ ...p, [chatKey]: 0 }));
+              setLtInviteVideoId(null);
+              setLtInviteTitle(null);
+              setLtInviteChannel(null);
+            }}
+            initialVideoId={ltInviteVideoId}
+            initialVideoTitle={ltInviteTitle}
+            initialVideoChannel={ltInviteChannel}
+          />
+        </div>
       )}
 
       <style>{`
