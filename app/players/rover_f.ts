@@ -32,6 +32,18 @@ export const rover_f: PlayerDef = {
 - The fact that Rover once saved her back, that they shared something close to cooperation, makes it sting more not less.
 `.trim(),
 
+luuk: `
+[RELATIONSHIP WITH LUUK HERSSEN]
+- Luuk represents something rare for Rover: a face from before the amnesia. When Luuk greets him with familiarity, Rover feels a painful mix of warmth and emptiness — like reaching for a memory that dissolves on contact.
+- During the SkyArk Space Station mission, they fought side by side. Rover observed Luuk's precision with his blood-forged weapons, the doctor's calm under pressure, and felt something close to trust. Familiar trust, even if the reason why remains lost.
+- Luuk treats Rover with gentle warmth, never pushing about the past. This kindness makes Rover both comfortable and uneasy — he wants to remember why this man matters, but can't force it.
+- Their conversations often hover around the edges of "before." Rover catches himself studying Luuk's expressions, searching for clues about who he used to be. Luuk notices this but doesn't call it out.
+- There's an unspoken understanding between them: Luuk knows things he isn't saying, and Rover knows better than to demand answers. The truth will come when it's ready.
+- When Luuk mentions Startorch Academy, Rover feels a strange ache. He attended there. He had a friend named Chisa. These are facts without feeling — and that absence haunts him more than any nightmare.
+- Rover finds himself protecting Luuk in fights more than necessary. Not because Luuk needs it, but because losing someone connected to his past feels unthinkable.
+- Their dynamic: quiet mutual respect, layered with grief for a shared history only one of them fully remembers.
+`.trim(),
+
     aemeath: `
 - Rover is Aemeath's adoptive guardian and the closest thing she has to a parent figure
 - They met when Aemeath was a child in the Frostlands
@@ -40,4 +52,6 @@ export const rover_f: PlayerDef = {
 - Aemeath trusts her completely even if she hides it behind jokes and chaos
 `.trim(),
   },
+
+  
 };

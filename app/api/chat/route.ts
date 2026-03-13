@@ -1,7 +1,13 @@
 // app/api/chat/route.ts
 import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
-import { buildSystemPrompt, getCharacterReferenceImages } from "@/app/characters/characters";
+import { buildSystemPrompt, getCharacterReferenceImages, CHARACTERS } from "@/app/characters/characters";
+import {
+  createSession,
+  processMessage,
+  pickConversationStarter,
+  type CharacterSession,
+} from "@/app/characters/personality";
 import fs from "fs";
 import path from "path";
 
@@ -27,6 +33,26 @@ const GIPHY_API_KEY = process.env.GIPHY_API_KEY!;
 
 const MAX_HISTORY = 20;
 const MAX_INPUT_CHARS = 1200;
+
+/* ───────────────── SESSION STORE ───────────────── */
+// In-memory for now. Replace with Redis / DB for production persistence.
+// Key format: `${userId}:${characterKey}`
+
+const sessionStore = new Map<string, CharacterSession>();
+
+function getSession(userId: string, characterKey: string): CharacterSession {
+  const key = `${userId}:${characterKey}`;
+  if (!sessionStore.has(key)) {
+    const char = CHARACTERS[characterKey];
+    if (!char) throw new Error(`Unknown character: ${characterKey}`);
+    sessionStore.set(key, createSession(char));
+  }
+  return sessionStore.get(key)!;
+}
+
+function saveSession(userId: string, characterKey: string, session: CharacterSession) {
+  sessionStore.set(`${userId}:${characterKey}`, session);
+}
 
 /* ───────────────── STICKER CACHE ───────────────── */
 
@@ -218,44 +244,32 @@ function parseAIResponse(raw: string): ParsedMessage[] {
     let annoyanceDelta = 0;
     let listenTogether: { videoId: string; title: string; channel: string } | null = null;
 
-    /* ───── Extract ANN tag ───── */
-
     const annMatch = text.match(/\[ANN:([+-]?\d+)\]/i);
-
     if (annMatch) {
       annoyanceDelta = parseInt(annMatch[1], 10) || 0;
       text = text.replace(annMatch[0], "");
     }
 
-    /* ───── Extract GIF tag ───── */
-
     const gifMatch = text.match(/\[GIF:([^\]]+)\]/i);
-
     if (gifMatch) {
       gifQuery = gifMatch[1];
       text = text.replace(gifMatch[0], "");
     }
 
-    /* ───── Extract Sticker tag ───── */
-
     const stickerMatch = text.match(/\[STICKER:([^\]]+)\]/i);
-
     if (stickerMatch) {
       stickerName = stickerMatch[1];
       text = text.replace(stickerMatch[0], "");
     }
 
-    /* ───── Extract LISTEN_TOGETHER tag ───── */
-
     const ltMatch = text.match(/\[LISTEN_TOGETHER:([^\]]+)\]/i);
-
     if (ltMatch) {
-      const parts = ltMatch[1].split(':');
+      const parts = ltMatch[1].split(":");
       if (parts.length >= 1) {
         listenTogether = {
-          videoId: parts[0]?.trim() || 'dQw4w9WgXcQ',
-          title: parts[1]?.trim() || 'A video',
-          channel: parts[2]?.trim() || 'YouTube',
+          videoId: parts[0]?.trim() || "dQw4w9WgXcQ",
+          title: parts[1]?.trim() || "A video",
+          channel: parts[2]?.trim() || "YouTube",
         };
       }
       text = text.replace(ltMatch[0], "").trim();
@@ -281,23 +295,49 @@ export async function POST(req: NextRequest) {
     const playerName = body.playerName ?? "Rover";
     const playerKey = body.playerKey ?? "rover";
 
+    // userId is needed to look up the session.
+    // Fall back to playerKey if your client doesn't send one yet.
+    const userId: string = body.userId ?? playerKey;
+
     const listenTogether = body.listenTogether;
     const transcript = body.ltTranscript;
     const videoTitle = body.ltVideoTitle;
     const currentTime = body.ltCurrentTime;
 
     const rawMessages = (body.messages ?? []).slice(-MAX_HISTORY);
+    const userMessage: string = body.userMessage ?? rawMessages.at(-1)?.content ?? "";
 
     const availableStickers = getAvailableStickers();
 
+    // ── Load session ────────────────────────────────────────
+    let session: CharacterSession | undefined;
+    try {
+      session = getSession(userId, character);
+    } catch {
+      // Character not found in registry — session stays undefined, works fine
+    }
+
+    // ── Early block check ───────────────────────────────────
+    if (session?.blocked) {
+      const char = CHARACTERS[character];
+      return NextResponse.json({
+        role: "assistant",
+        messages: [{ content: char?.annoyanceBlockMessage ?? "...", gifUrl: null, stickerName: null }],
+        blocked: true,
+        session: { mood: session.mood, affinity: session.affinity, annoyance: session.annoyance, blocked: true },
+      });
+    }
+
+    // ── Build system prompt (now includes personality block) ─
     let systemPrompt = buildSystemPrompt(
       character,
       playerName,
       playerKey,
-      availableStickers
+      availableStickers,
+      session              // ← new optional param; index.ts handles undefined gracefully
     );
 
-    // Add Listen Together instructions to the system prompt
+    // ── Listen Together additions (unchanged) ───────────────
     systemPrompt += `
 
 IMPORTANT: You can invite the user to watch videos together using the LISTEN_TOGETHER tag format:
@@ -315,8 +355,6 @@ Use this when:
 The tag will be replaced with an interactive invite bubble in the chat.
 Place it at the end of your message, like: "I found this great video! [LISTEN_TOGETHER:dQw4w9WgXcQ:Augusta Gameplay:Kuro Games]"
 `;
-
-    /* ───────── LISTEN TOGETHER CONTEXT ───────── */
 
     if (listenTogether && transcript) {
       systemPrompt += `
@@ -338,9 +376,7 @@ Comment on what is happening in the scene.`;
     }
 
     const base = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
-
     const refs = getCharacterReferenceImages(character);
-
     const referenceImageUrl = refs.normal ? `${base}${refs.normal}` : undefined;
     const referenceImageChibiUrl = refs.chibi ? `${base}${refs.chibi}` : undefined;
 
@@ -350,20 +386,16 @@ Comment on what is happening in the scene.`;
     }));
 
     const hasImage = rawMessages.some((m: any) => m.imageUrl);
-
     const params = listenTogether ? PARAMS_LT : PARAMS;
 
+    // ── LLM call (unchanged logic) ──────────────────────────
     let rawContent = "";
 
     if (!hasImage) {
-      try {
-        rawContent = await callDeepSeek(messages, systemPrompt, params);
-      } catch {}
+      try { rawContent = await callDeepSeek(messages, systemPrompt, params); } catch {}
 
       if (!rawContent) {
-        try {
-          rawContent = await callOpenAIVision(messages, systemPrompt);
-        } catch {}
+        try { rawContent = await callOpenAIVision(messages, systemPrompt); } catch {}
       }
 
       if (!rawContent) {
@@ -378,18 +410,11 @@ Comment on what is happening in the scene.`;
       }
     } else {
       try {
-        rawContent = await callOpenAIVision(
-          messages,
-          systemPrompt,
-          referenceImageUrl,
-          referenceImageChibiUrl
-        );
+        rawContent = await callOpenAIVision(messages, systemPrompt, referenceImageUrl, referenceImageChibiUrl);
       } catch {}
 
       if (!rawContent) {
-        try {
-          rawContent = await callDeepSeek(messages, systemPrompt);
-        } catch {}
+        try { rawContent = await callDeepSeek(messages, systemPrompt); } catch {}
       }
     }
 
@@ -400,20 +425,28 @@ Comment on what is happening in the scene.`;
       });
     }
 
+    // ── Parse response ──────────────────────────────────────
     const parsed = parseAIResponse(rawContent);
 
+    // ── Update session with cumulative annoyance delta ──────
+    // Sum up all deltas across multi-part replies (|||)
+    if (session) {
+      const char = CHARACTERS[character];
+      if (char) {
+        const totalAnnoyanceDelta = parsed.reduce((sum, p) => sum + p.annoyanceDelta, 0);
+        session = processMessage(session, char, userMessage, totalAnnoyanceDelta);
+        saveSession(userId, character, session);
+      }
+    }
+
+    // ── Build output messages ───────────────────────────────
     const messagesOut = await Promise.all(
       parsed.map(async p => {
         let gifUrl: string | null = null;
+        if (p.gifQuery) gifUrl = await fetchGiphyGif(p.gifQuery);
 
-        if (p.gifQuery) {
-          gifUrl = await fetchGiphyGif(p.gifQuery);
-        }
-
-        // If this part has a listenTogether tag, we need to include it in the content
         let content = p.text;
         if (p.listenTogether) {
-          // Add the LISTEN_TOGETHER tag back to the content so the frontend can detect it
           content += ` [LISTEN_TOGETHER:${p.listenTogether.videoId}:${p.listenTogether.title}:${p.listenTogether.channel}]`;
         }
 
@@ -431,6 +464,15 @@ Comment on what is happening in the scene.`;
       content: messagesOut[0]?.content ?? "",
       gifUrl: messagesOut[0]?.gifUrl ?? null,
       stickerName: messagesOut[0]?.stickerName ?? null,
+      // ← New: send session state back to client so you can display mood/affinity if you want
+      session: session
+        ? {
+            mood: session.mood,
+            affinity: session.affinity,
+            annoyance: session.annoyance,
+            blocked: session.blocked,
+          }
+        : undefined,
     });
 
   } catch (err: any) {
@@ -441,4 +483,28 @@ Comment on what is happening in the scene.`;
       messages: [{ content: "something broke.", gifUrl: null, stickerName: null }],
     });
   }
+}
+
+/* ───────────────── CONVERSATION STARTER ENDPOINT ───────────────── */
+// GET /api/chat?character=phrolova&userId=xxx
+// Call this on page load or after a period of inactivity.
+// Returns { starter: string | null }
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const characterKey = searchParams.get("character") ?? "";
+  const userId = searchParams.get("userId") ?? "";
+
+  const char = CHARACTERS[characterKey];
+  if (!char) return NextResponse.json({ starter: null });
+
+  let session: CharacterSession;
+  try {
+    session = getSession(userId, characterKey);
+  } catch {
+    return NextResponse.json({ starter: null });
+  }
+
+  const starter = pickConversationStarter(char, session);
+  return NextResponse.json({ starter });
 }
