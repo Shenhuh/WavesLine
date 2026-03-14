@@ -68,4 +68,10 @@ export type CharacterDef = {
 
   // ── Per-tier tone overrides (new — optional) ─────────────────────────────
   tierDirectives?: Partial<Record<AffinityTier, string>>;
+
+  // ── World context blocks ─────────────────────────────────────────────────
+  // Blocks beyond "core" (always included) that this character needs.
+  // e.g. ["fractsidus", "rover_history"] for Phrolova
+  // e.g. ["rinascita"] for Carlotta, ["frostlands"] for Luuk
+  worldContext?: string[];
 };

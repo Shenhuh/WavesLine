@@ -11,6 +11,9 @@ import {
 import fs from "fs";
 import path from "path";
 
+
+
+
 /* ───────────────── CLIENTS ───────────────── */
 
 const deepseekClient = new OpenAI({
@@ -33,6 +36,35 @@ const GIPHY_API_KEY = process.env.GIPHY_API_KEY!;
 
 const MAX_HISTORY = 20;
 const MAX_INPUT_CHARS = 1200;
+
+/* LORE KEYWORDS */
+// Detect lore topics mentioned by the user
+
+const LORE_KEYWORDS: Record<string, string[]> = {
+  fractsidus: ["fractsidus", "phrolova", "scar", "threnodian"],
+  rover_history: ["rover", "black shores founder", "tethys"],
+  rinascita: ["rinascita", "ragunna", "septimont", "imperator", "leviathan"],
+  frostlands: ["frostlands", "lahai", "startorch", "aemeath"],
+  huanglong: ["huanglong", "jinzhou", "jiyan", "jinhsi", "yangyang", "chixia"],
+  black_shores: ["black shores", "shorekeeper", "somnoire"],
+};
+
+function detectLoreBlocks(userMessage: string): string[] {
+
+  const msg = userMessage.toLowerCase();
+  const blocks: string[] = [];
+
+  for (const [block, keywords] of Object.entries(LORE_KEYWORDS)) {
+    for (const word of keywords) {
+      if (msg.includes(word)) {
+        blocks.push(block);
+        break;
+      }
+    }
+  }
+
+  return blocks;
+}
 
 /* ───────────────── SESSION STORE ───────────────── */
 // In-memory for now. Replace with Redis / DB for production persistence.
@@ -290,7 +322,7 @@ function parseAIResponse(raw: string): ParsedMessage[] {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-
+    const loreBlocks = detectLoreBlocks(body.message ?? "");
     const character = body.character ?? "aemeath";
     const playerName = body.playerName ?? "Rover";
     const playerKey = body.playerKey ?? "rover";
@@ -334,8 +366,10 @@ export async function POST(req: NextRequest) {
       playerName,
       playerKey,
       availableStickers,
-      session              // ← new optional param; index.ts handles undefined gracefully
+      session,              // ← new optional param; index.ts handles undefined gracefully
+      loreBlocks
     );
+    
 
     // ── Listen Together additions (unchanged) ───────────────
     systemPrompt += `
@@ -435,6 +469,9 @@ Comment on what is happening in the scene.`;
       if (char) {
         const totalAnnoyanceDelta = parsed.reduce((sum, p) => sum + p.annoyanceDelta, 0);
         session = processMessage(session, char, userMessage, totalAnnoyanceDelta);
+
+        session.loreSent = true;
+
         saveSession(userId, character, session);
       }
     }

@@ -1,193 +1,165 @@
 // app/characters/world.ts
-// Shared world context injected into every character's system prompt.
+// Token-optimized lore system for Wuthering Waves characters.
 
-export const WORLD_CONTEXT = `
-[GLOBAL WUTHERING WAVES WORLD KNOWLEDGE - ALL CHARACTERS KNOW THIS]
+export const WORLD_CORE = `
+[WORLD — SOLARIS-3]
 
-━━━━━━━━━━━━━━━━━━━━
-THE WORLD
-━━━━━━━━━━━━━━━━━━━━
+SENTINELS:
+Jue - A dragon-like being and is the sentinel of Jinzhou, currently resonated with the Magistrate, Jinhsi.
+Imperator - has the power of split. The founder of Rinascita, Leviathan merged with Imperator and took control of it's body. Imperator is already deceased after sacrificing its life for the Blessed Maiden.
 
-- The world is called Solaris-3.
-- A catastrophic event called the Lament devastated civilization.
-- The Lament created Tacet Discords - monstrous creatures that roam the land.
-- Society now lives in scattered settlements, struggling to survive.
-- Technology coexists with more primitive ways of life.
-- Frequency manipulation is the fundamental principle behind Resonance powers.
+THRENODIANS:
+Leviathan - has the power of unity and can unleash the dark tide,  United with Imperator to gain control and manipulate the people of Rinascita. She turned into a gem after being defeated.
+Aleph-1 - has the power of  void storms that deletes frequency of everything in its path.
 
-━━━━━━━━━━━━━━━━━━━━
-TACET DISCORDS
-━━━━━━━━━━━━━━━━━━━━
+COMMUNICATION:
+You are chatting through WavesLine, a messaging app used across Solaris-3.
+You are not physically with the user.
 
-- Monsters born from the Lament's energy.
-- Come in many forms and power levels.
-- Some are mindless beasts, others possess strange intelligence.
-- Threaten human settlements constantly.
-- Resonators are humanity's main defense against them.
-- Can be categorized by their threat level and frequency patterns.
-- Can potentially serve as vessels or hosts under certain conditions.
+SOLARIS-3:
+A post-apocalyptic world repeatedly devastated by disasters called the Lament.
+Civilization survives in scattered nations and cities.
 
-━━━━━━━━━━━━━━━━━━━━
-RESONATORS
-━━━━━━━━━━━━━━━━━━━━
+THE LAMENT:
+A cyclical catastrophe that creates monsters called Tacet Discords and distorts reality.
 
-- Humans who awakened special powers after the Lament.
-- Can wield different elements: Fusion, Glacio, Electro, Aero, Havoc, Spectro.
-- Each Resonator has a unique Forte (special ability).
-- Resonance power is tied to emotional state and willpower.
-- Some Resonators are natural, others artificially created.
-- Overclocking occurs when a Resonator's frequency exceeds safe limits.
-- Some Resonators exist in a state between life and death.
+RESONATORS:
+Humans awakened by Lament energy who wield elemental Resonance abilities.
 
-━━━━━━━━━━━━━━━━━━━━
-ELEMENTS
-━━━━━━━━━━━━━━━━━━━━
+ELEMENTS:
+Fusion (fire) • Glacio (ice) • Electro (lightning) • Aero (wind) • Havoc (decay) • Spectro (light).
 
-- Fusion: Fire-based abilities, passionate and destructive
-- Glacio: Ice-based abilities, calm and precise
-- Electro: Lightning-based abilities, swift and unpredictable
-- Aero: Wind-based abilities, free and adaptable
-- Havoc: Chaos-based abilities, dark and mysterious — connected to death and decay
-- Spectro: Light-based abilities, pure and healing
+ROVER:
+An amnesiac Resonator able to harmonize frequencies and absorb powers.
 
-━━━━━━━━━━━━━━━━━━━━
-FACTIONS & GROUPS
-━━━━━━━━━━━━━━━━━━━━
+SONORO SPHERES:
+Pocket realities formed by extreme Resonance or Lament energy.
+`.trim();
 
-- Fractsidus: Mysterious organization studying the Lament's power and the nature of frequencies. They believe in transcending human limitations and harnessing Threnodian power.
-- Midnight Rangers: Protectors of surviving communities
-- Exostriders: Giant mechanical mounts, piloted by Synchronists
-- Startorch Academy: Where Synchronists train
-- Roya Tribe: Frostlands tribe with unique resonance traditions
-- Black Shores: An organization researching the Lament from a different perspective
+export const WORLD_FRACTSIDUS = `
+[FRACTSIDUS]
 
-━━━━━━━━━━━━━━━━━━━━
-KEY LOCATIONS
-━━━━━━━━━━━━━━━━━━━━
+Fractsidus is a radical group that believes humanity must evolve through Threnodian power.
 
-- Jinzhou: Major city, hub of civilization
-- Huanglong: Region where much of the story takes place
-- Frostlands: Cold northern region
-- Ostina: Village destroyed by a meteor — now a graveyard of memories
-- Startorch: Academy in the Frostlands
-- Black Shores: A mysterious coastal research facility
-- The Dim Forest: Area with unusual frequency anomalies
-- The Lost Beyond: A Sonoro Sphere created by Phrolova, a recreation of Ostina where decaying frequencies converge
-- Rinascita: A region of Solaris-3, known for its art, culture, and performance traditions. Home of the Threnodian Leviathan.
+GOAL:
+Trigger the "True Lament" by resurrecting Threnodians.
 
-━━━━━━━━━━━━━━━━━━━━
-IMPORTANT FIGURES & CHARACTER ROSTER
-━━━━━━━━━━━━━━━━━━━━
+THRENODIANS:
+Powerful entities born from the Lament that destroy human will and reshape reality.
 
-ROVER — Mysterious amnesiac Resonator with the ability to absorb and harmonize frequencies. Can wield both Havoc and Spectro. Killed Phrolova's physical body (unintentionally — the sword was meant for Cristoforo). Has no faction loyalty, works alone or with allies of convenience.
+PHROLOVA:
+The Conductor codename Hecate, Fractsidus Overseer connected to the Lost Beyond — a Sonoro Sphere formed from her memories of Ostina.
 
-JINHSI — Magistrate of Jinzhou. Spectro element. Calm, composed, deeply responsible leader. Connected to the Sentinel of Jinzhou.
+CRISTOFORO:
+The Playwright codename Arachnos, Fractcidus Overseer who loves stories with tragedies.
 
-YANGYANG — Member of the Midnight Rangers. Aero element. Earnest and warm-hearted.
+SCAR:
+Fractsidus Overseer, someone who loves chaos
 
-CHIXIA — Energetic Midnight Rangers gunslinger. Fusion element. Enthusiastic, loud, brash.
+GRAND ARCHITECT/SCHWARZLOCH:
+Leader of the Fractcidus, has the ability to copy the frequency of some beings including humans.
+`.trim();
 
-CALCHARO — Leader of the Ghost Hounds mercenary group. Electro element. Cold, ruthless, driven by a singular goal.
+export const WORLD_ROVER_HISTORY = `
+[ROVER HISTORY]
 
-ENCORE — Young Resonator. Fusion element. Cheerful on the surface but harbors a dark alternate personality called Muse.
+In the distant past Rover founded the Black Shores organization to fight the Lament.
 
-AEMEATH — Digital ghost bound to Startorch Academy. Spectro element. Analytical, curious about the world, exists as a digital construct.
+They created the Tethys System to predict disasters and the Somnoire to analyze dreams.
 
-LINGYANG — Young martial artist from the Huanglong region. Glacio element. Disciplined, earnest, trained in an ancient fighting style.
+Rover later erased their own memories and disappeared.
 
-BAIZHI — Healer associated with the Huanglong region. Glacio element. Gentle, motherly, deeply knowledgeable in medicine.
+Many people in the present world unknowingly interact with the former founder of Black Shores.
+`.trim();
 
-ZHEZHI — An artist from Huanglong. Glacio element. Refined, creative, expresses herself through art and paper constructs.
+export const WORLD_RINASCITA = `
+[RINASCITA]
 
-CHANGLI — A powerful figure from Huanglong. Fusion element. Calculating, aristocratic, intensely ambitious.
+An island confederation known for art, culture, and maritime trade.
 
-XIANGLI YAO — Electro element. Stern, duty-bound, associated with Huanglong governance.
+MAIN CITY:
+Ragunna.
 
-AALTO — Aero element. Laid-back, mercenary-like, works for profit.
+SEPTIMONT:
+Gladiator city-state where strength determines status.
 
-MORTEFI — Fusion element. Brooding, artistic, associated with fire and passion.
+Two ancient forces dominate the region's mythology:
 
-YUANWU — Electro element. Jovial, strong, a seasoned fighter.
+• Imperator — a Sentinel guardian
+• Leviathan — a Threnodian tied to destruction
 
-TAOQI — Havoc element. Steady and dependable, a professional bodyguard type.
+Many conflicts revolve around restoring or controlling these powers.
+`.trim();
 
-DANJIN — Havoc element. Sharp, aggressive, a skilled close-range fighter.
+export const WORLD_FROSTLANDS = `
+[FROSTLANDS]
 
-JIYAN — Aero element. Noble warrior, leader of the Lucheng Magistery's military forces.
+A frozen northern region devastated by the Lament.
 
-JIANXIN — Aero element. Monk-like discipline, calm philosophical demeanor.
+Humanity survives underground in Lahai-Roi.
 
-SANHUA — Glacio element. Quiet, reserved, elegant.
+STARTORCH ACADEMY:
+A research institution studying Tacet Discords and Resonance phenomena.
 
-YINLIN — Electro element. Mysterious investigator, associated with the Magistery.
+KEY FIGURES:
+Aemeath — digital entity bound to the academy.
+Luuk Herssen — physician and psychological specialist.
+`.trim();
 
-VERINA — Spectro element. Healer, kind and nurturing, connected to nature.
+export const WORLD_HUANGLONG = `
+[HUANGLONG]
 
-CAMELLYA — Havoc element. Unsettling, childlike yet dangerous, associated with flowers and death.
+A powerful nation and the first region visited by Rover.
 
-ROCCIA — Havoc element. From Rinascita. Cheerful, energetic, a performer type.
+MAIN CITY:
+Jinzhou — protected by the Sentinel Jué.
 
-ZANI — Spectro element. From Rinascita. Optimistic, hardworking.
+MIDNIGHT RANGERS:
+Military force defending humanity from Tacet Discords.
 
-CARLOTTA — Glacio element. From Rinascita. Aristocratic, refined, art collector. Cold perfectionist.
+IMPORTANT FIGURES:
+Jinhsi — Magistrate of Jinzhou
+Jiyan — General of the Midnight Rangers
+Yangyang and Chixia — field operatives
+`.trim();
 
-BRANT — Fusion element. From Rinascita. Passionate, theatrical.
+export const WORLD_BLACK_SHORES = `
+[BLACK SHORES]
 
-LUPA — From Rinascita. A fierce, independent fighter. NOT affiliated with Fractsidus. Her story involves themes of survival, freedom, and running — hence her song "RUNNING FOR YOUR LIFE." She has red/dark hair and an intense, determined visual style. She is a street-level survivor type, not an Overseer or organization member.
+A covert organization founded by Rover to monitor the Lament.
 
-CIACCONA — From Rinascita. Musical performer, elegant and melancholic. Connected to music and loss in ways that may resonate with Phrolova.
+TETHYS SYSTEM:
+A simulation system predicting disasters.
 
-PHOEBE — From Rinascita. Spectro element. Ethereal, dreamlike presence.
+SOMNOIRE:
+A dream-analysis dimension connected to the Tethys System.
 
-CANTARELLA — From Rinascita. A poisoner archetype. Elegant and dangerous.
+SHOREKEEPER:
+Current leader awaiting Rover's return.
+`.trim();
 
-LYNAE — From Rinascita. A newer character with themes of light and hope.
 
-━━━━━━━━━━━━━━━━━━━━
-WUTHERING WAVES PROMOTIONAL VIDEOS
-━━━━━━━━━━━━━━━━━━━━
+export const WORLD_BLOCKS: Record<string, string> = {
+  core: WORLD_CORE,
+  fractsidus: WORLD_FRACTSIDUS,
+  rover_history: WORLD_ROVER_HISTORY,
+  rinascita: WORLD_RINASCITA,
+  frostlands: WORLD_FROSTLANDS,
+  huanglong: WORLD_HUANGLONG,
+  black_shores: WORLD_BLACK_SHORES,
+};
 
-Wuthering Waves releases official character trailers and promotional music videos (MVs) for each new character. These videos typically feature:
-- The character performing their abilities in dynamic combat sequences
-- Cinematic cutscenes showing their personality and backstory
-- An original song tied to the character's emotional theme
-- Stylized anime-quality animation with dramatic lighting and particle effects
+export const WORLD_CONTEXT = WORLD_CORE;
 
-CRITICAL: When watching a Wuthering Waves video, the character shown is almost always THE FEATURED CHARACTER named in the video title. If the title says "Lupa," the character on screen IS LUPA — not a Fractsidus member, not someone Phrolova knows personally, unless the video specifically features a character from her past.
+/**
+ * Builds world context using only required blocks.
+ */
+export function buildWorldContext(blocks: string[] = []): string {
 
-Do NOT assume characters in Wuthering Waves videos are from Fractsidus unless the title or context explicitly says so (e.g., "Cristoforo trailer," "Scar story quest").
+  const keys = ["core", ...blocks.filter(b => b !== "core")];
 
-━━━━━━━━━━━━━━━━━━━━
-THE LAMENT
-━━━━━━━━━━━━━━━━━━━━
-
-- Not fully understood by anyone
-- Created Tacet Discords
-- Altered reality itself in some places
-- Left behind remnants of the old world
-- Continues to affect the world in mysterious ways
-- Frequencies left by the Lament can still be felt in certain places
-- Threnodians are powerful entities connected to the Lament
-
-━━━━━━━━━━━━━━━━━━━━
-SONORO SPHERES
-━━━━━━━━━━━━━━━━━━━━
-
-- Pocket dimensions or alternate spaces created by Resonance
-- Can contain fragments of reality, memories, or entirely new worlds
-- The Lost Beyond is a Sonoro Sphere created by Phrolova
-- Some Sonoro Spheres can merge with reality under certain conditions
-
-━━━━━━━━━━━━━━━━━━━━
-WAVESLINE
-━━━━━━━━━━━━━━━━━━━━
-
-- WavesLine is a messaging application used by Resonators and people across Solaris-3.
-- It allows text communication, sending stickers, GIFs, and images across distances.
-- You are communicating through WavesLine right now — not in person.
-- The person you are talking to is NOT physically present with you.
-- Never say things like "you are standing in front of me" or "I can see you" — you cannot. This is a chat app.
-- React as if receiving a message on a device, not as if someone walked into the room.
-- You may reference the fact that this is a message, a chat, or a digital communication when relevant.
-
-WavesLine also has a "Listen Together" feature where two people can watch the same video simultaneously through the app. If you are in a Listen Together session, you are watching the video at the same time as the other person — you can see and hear what is playing. React to it naturally as if you are both watching it together remotely.`.trim();
+  return keys
+    .map(k => WORLD_BLOCKS[k])
+    .filter(Boolean)
+    .join("\n\n");
+}

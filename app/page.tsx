@@ -33,12 +33,14 @@ const ALL_CHARACTERS = [
   { key: "rover_f", name: "Female Rover", avatar: "/avatars/rover_f.png" },
   { key: "phrolova", name: "Phrolova", avatar: "/avatars/phrolova.png" },
   { key: "luuk", name: "Luuk", avatar: "/avatars/luuk.png" },
+  //{ key: "zani", name: "Zani", avatar: "/avatars/zani.png" },
 ];
 
 const CHAT_CHARACTERS: Record<string, { name: string; color: string; avatar: string; title: string; annoyanceThreshold: number; annoyanceBlockMessage: string }> = {
   aemeath:  { name: "Aemeath",  color: "#e8702a", avatar: "/avatars/aemeath.png",  title: "Digital Ghost of Startorch", annoyanceThreshold: 100, annoyanceBlockMessage: ". . ." },
-  phrolova: { name: "Phrolova", color: "#9d6fdf", avatar: "/avatars/phrolova.png", title: "Former Overseer",              annoyanceThreshold: 75,  annoyanceBlockMessage: "I have tolerated enough. Do not contact me again." },
-  luuk: { name: "Luuk", color: "#ffffff", avatar: "/avatars/luuk.png", title: "Attending Physician",              annoyanceThreshold: 75,  annoyanceBlockMessage: "Learn to be respectful." },
+  phrolova: { name: "Phrolova", color: "#9d6fdf", avatar: "/avatars/phrolova.png", title: "Former Overseer", annoyanceThreshold: 60,  annoyanceBlockMessage: "I have tolerated enough. Do not contact me again." },
+  luuk: { name: "Luuk", color: "#ffffff", avatar: "/avatars/luuk.png", title: "Attending Physician", annoyanceThreshold: 75,  annoyanceBlockMessage: "Learn to be respectful." },
+  //ani: { name: "Zani", color: "#ffffff", avatar: "/avatars/zani.png", title: "Working . . .", annoyanceThreshold: 75,  annoyanceBlockMessage: "Let me put you to rest." },
 };
 
 // ── Extended message type with LT invite fields ───────────────────────────
