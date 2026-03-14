@@ -201,6 +201,27 @@ const PARAMS_LT = {
   max_tokens: 80,
 };
 
+/* ───────────────── LISTEN TOGETHER PROMPT HELPERS ───────────────── */
+
+const LT_INSTRUCTION_BLOCK = `
+LISTEN_TOGETHER tag format:
+[LISTEN_TOGETHER:videoId:Video Title:Channel Name]
+Use only when relevant. Place one tag at the end of your message.`;
+
+const LT_TRANSCRIPT_MAX_CHARS = 650;
+
+function compactForPrompt(value: unknown, fallback: string) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text || fallback;
+}
+
+function clipTranscript(value: unknown) {
+  const cleaned = compactForPrompt(value, "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return "none";
+  if (cleaned.length <= LT_TRANSCRIPT_MAX_CHARS) return cleaned;
+  return `${cleaned.slice(0, LT_TRANSCRIPT_MAX_CHARS)}…`;
+}
+
 /* ───────────────── MODEL CALLERS ───────────────── */
 
 async function callDeepSeek(messages: ChatMessage[], systemPrompt: string, params = PARAMS) {
@@ -371,42 +392,22 @@ export async function POST(req: NextRequest) {
     );
     
 
-    // ── Listen Together additions (unchanged) ───────────────
-    systemPrompt += `
-
-IMPORTANT: You can invite the user to watch videos together using the LISTEN_TOGETHER tag format:
-[LISTEN_TOGETHER:videoId:Video Title:Channel Name]
-
-Examples:
-- [LISTEN_TOGETHER:dQw4w9WgXcQ:Augusta Gameplay Showcase:Kuro Games]
-- [LISTEN_TOGETHER:abc123xyz:Character Trailer:Wuthering Waves]
-
-Use this when:
-- The user asks you to watch something
-- You find content relevant to the conversation
-- You want to share a video with the user
-
-The tag will be replaced with an interactive invite bubble in the chat.
-Place it at the end of your message, like: "I found this great video! [LISTEN_TOGETHER:dQw4w9WgXcQ:Augusta Gameplay:Kuro Games]"
-`;
+    // ── Listen Together additions ───────────────────────────
+    systemPrompt += `\n\n${LT_INSTRUCTION_BLOCK}`;
 
     if (listenTogether && transcript) {
+      const ltVideoTitle = compactForPrompt(videoTitle, "unknown");
+      const ltTranscript = clipTranscript(transcript);
+      const ltCurrentTime = Math.floor(Number(currentTime) || 0);
+
       systemPrompt += `
 
-You and the user are watching a YouTube video together.
+Watch context:
+- title: ${ltVideoTitle}
+- time: ${ltCurrentTime}s
+- transcript: ${ltTranscript}
 
-Video title:
-${videoTitle ?? "unknown"}
-
-Current playback time:
-${Math.floor(currentTime ?? 0)} seconds
-
-Transcript excerpt:
-${transcript}
-
-React naturally to the content of the video.
-Do not repeat transcript lines word-for-word.
-Comment on what is happening in the scene.`;
+React to the scene naturally. Avoid repeating transcript lines verbatim.`;
     }
 
     const base = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
