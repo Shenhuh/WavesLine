@@ -74,10 +74,6 @@ function parseVideoAction(text: string): { clean: string; action: VideoAction | 
   let action: VideoAction | null = null;
   let clean = text;
 
-  // CHANGE_VIDEO — canonical form: [CHANGE_VIDEO:query]
-  // Also catches hallucinated variants the model sometimes produces:
-  //   [LISTEN_TOGETHER:query:channel:platform]
-  //   [CHANGE_VIDEO:title:channel]  (extra colon-separated fields — use only first segment as query)
   const changeMatch =
     clean.match(/\[CHANGE_VIDEO:([^\]]+)\]/i) ??
     clean.match(/\[LISTEN_TOGETHER:([^\]]+)\]/i) ??
@@ -85,7 +81,6 @@ function parseVideoAction(text: string): { clean: string; action: VideoAction | 
     clean.match(/\[SEARCH_VIDEO:([^\]]+)\]/i);
 
   if (changeMatch) {
-    // Strip extra colon-delimited metadata (title:channel:platform → use title only)
     const raw = changeMatch[1].trim();
     const query = raw.split(":")[0].trim();
     action = { type: "change", query };
@@ -101,8 +96,17 @@ function parseVideoAction(text: string): { clean: string; action: VideoAction | 
     clean = clean.replace(/\[RESUME_VIDEO\]/gi, "").trim();
   }
 
-  // Strip any other leftover bracketed tags the model hallucinated (safety net)
-  clean = clean.replace(/\[[A-Z_]+:[^\]]*\]/g, "").trim();
+  // Remove sticker tags from visible text
+  clean = clean.replace(/\[STICKER:[^\]]+\]/gi, "").trim();
+
+  // Remove any leftover LT/video/search tags from visible text
+  clean = clean.replace(/\[(LISTEN_TOGETHER|CHANGE_VIDEO|PLAY_VIDEO|SEARCH_VIDEO):[^\]]*\]/gi, "").trim();
+
+  // Remove any leftover simple control tags
+  clean = clean.replace(/\[(PAUSE_VIDEO|RESUME_VIDEO|SKIP_VIDEO)\]/gi, "").trim();
+
+  // Collapse extra whitespace left behind
+  clean = clean.replace(/\s{2,}/g, " ").trim();
 
   return { clean, action };
 }
@@ -159,16 +163,43 @@ export default function ListenTogether({
 
   // ── AUTO-SELECT FROM INVITE ───────────────────────────────────────────────
   useEffect(() => {
-    if (initialVideoId && initialVideoTitle && initialVideoChannel) {
-      const video = {
-        id: initialVideoId,
-        title: initialVideoTitle,
-        channel: initialVideoChannel,
-        thumbnail: `https://img.youtube.com/vi/${initialVideoId}/mqdefault.jpg`
-      };
-      setTimeout(() => selectVideo(video), 100);
-    }
-  }, [initialVideoId, initialVideoTitle, initialVideoChannel]);
+  if (initialVideoId && initialVideoTitle && initialVideoChannel) {
+    const video = {
+      id: initialVideoId,
+      title: initialVideoTitle,
+      channel: initialVideoChannel,
+      thumbnail: `https://img.youtube.com/vi/${initialVideoId}/mqdefault.jpg`
+    };
+
+    setSelectedVideo(video);
+    selectedVideoRef.current = video;
+    setPhase("waiting");
+    setResults([]);
+
+    usedAnglesRef.current = new Set();
+    reactionHistoryRef.current = [];
+    usedTranscriptOffsets.current.clear();
+    currentTimeRef.current = 0;
+
+    fetchAndStoreTranscript(video.id);
+
+    addMessage({
+      role: "system",
+      content: `Joined ${characterName}'s Listen Together session. Now playing "${decodeHtml(video.title)}"`,
+      time: getTime(),
+    });
+
+    onSessionUpdate?.({
+      type: "video_started",
+      title: video.title,
+      channel: video.channel,
+    });
+
+    setTimeout(() => {
+      startPlaying(video);
+    }, 400);
+  }
+}, [initialVideoId, initialVideoTitle, initialVideoChannel]);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640);
@@ -338,85 +369,145 @@ export default function ListenTogether({
   }
 
   // ── START PLAYING ─────────────────────────────────────────────────────────
-  function startPlaying(video: VideoResult) {
-    setPhase("playing");
+ function startPlaying(video: VideoResult) {
+  setPhase("playing");
 
-    const ensurePlayerContainer = () => {
-      let playerContainer = document.getElementById("yt-player");
-      if (!playerContainer) {
-        const videoSection =
-          document.querySelector('[class*="yt-player"]')?.parentElement ||
-          document.querySelector('.video-container') ||
-          document.querySelector('[style*="background: #000"]');
-        if (videoSection) {
-          const newDiv = document.createElement('div');
-          newDiv.id = "yt-player";
-          newDiv.style.width = "100%";
-          newDiv.style.height = "100%";
-          videoSection.appendChild(newDiv);
-          playerContainer = newDiv;
-        } else {
-          return false;
-        }
-      }
-      return true;
-    };
+  const ensurePlayerContainer = () => {
+    let playerContainer = document.getElementById("yt-player");
+    if (!playerContainer) {
+      const videoSection =
+        document.querySelector('[class*="yt-player"]')?.parentElement ||
+        document.querySelector(".video-container") ||
+        document.querySelector('[style*="background: #000"]');
 
-    const initPlayer = () => {
-      if (!ensurePlayerContainer()) { setTimeout(initPlayer, 500); return; }
-      if (typeof (window as any).YT === 'undefined' || typeof (window as any).YT.Player === 'undefined') {
-        setTimeout(initPlayer, 300); return;
+      if (videoSection) {
+        const newDiv = document.createElement("div");
+        newDiv.id = "yt-player";
+        newDiv.style.width = "100%";
+        newDiv.style.height = "100%";
+        videoSection.appendChild(newDiv);
+        playerContainer = newDiv;
+      } else {
+        return false;
       }
-      try {
-        if (playerRef.current && typeof playerRef.current.destroy === 'function') {
-          try { playerRef.current.destroy(); } catch {}
-          playerRef.current = null;
-        }
-        playerRef.current = new (window as any).YT.Player("yt-player", {
-          videoId: video.id,
-          playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1, fs: 0, origin: window.location.origin, enablejsapi: 1 },
-          events: {
-            onReady: (event: any) => { event.target.playVideo(); },
-            onStateChange: (e: any) => {
-              if (e.data === 0) { handleVideoEnd(); return; }
-              const prev = playerStateRef.current;
-              playerStateRef.current = e.data;
-              // e.data: 1=playing, 2=paused, 3=buffering
-              // Only react if the AI wasn't the one who caused the state change
-              if (!aiPausedRef.current) {
-                if (e.data === 2 && prev === 1) {
-                  // User paused — character reacts
-                  handleUserPlayerEvent("paused");
-                } else if (e.data === 1 && prev === 2) {
-                  // User resumed — character reacts
-                  handleUserPlayerEvent("resumed");
-                }
-              }
-              aiPausedRef.current = false;
-            },
-            onError: (e: any) => {
-              let errorMessage = "Unable to play this video.";
-              if (e.data === 100) errorMessage = "Video not found or removed.";
-              if (e.data === 101 || e.data === 150) errorMessage = "Video cannot be embedded.";
-              addMessage({ role: "system", content: errorMessage, time: getTime() });
-              setTimeout(() => { setPhase("search"); setSelectedVideo(null); }, 2000);
-            },
+    }
+    return true;
+  };
+
+  const initPlayer = () => {
+    if (!ensurePlayerContainer()) {
+      setTimeout(initPlayer, 500);
+      return;
+    }
+
+    if (typeof (window as any).YT === "undefined" || typeof (window as any).YT.Player === "undefined") {
+      setTimeout(initPlayer, 300);
+      return;
+    }
+
+    try {
+      if (playerRef.current && typeof playerRef.current.destroy === "function") {
+        try {
+          playerRef.current.destroy();
+        } catch {}
+        playerRef.current = null;
+      }
+
+      playerRef.current = new (window as any).YT.Player("yt-player", {
+        videoId: video.id,
+        playerVars: {
+          autoplay: 1,
+          rel: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          fs: 0,
+          origin: window.location.origin,
+          enablejsapi: 1,
+        },
+        events: {
+          onReady: (event: any) => {
+            event.target.playVideo();
           },
-        });
-      } catch (e) {
-        addMessage({ role: "system", content: "Failed to load video player.", time: getTime() });
-        setTimeout(() => { setPhase("search"); setSelectedVideo(null); }, 2000);
-      }
-    };
+          onStateChange: (e: any) => {
+            if (e.data === 0) {
+              handleVideoEnd();
+              return;
+            }
 
-    setTimeout(initPlayer, 800);
+            const prev = playerStateRef.current;
+            playerStateRef.current = e.data;
 
-    timeTrackerRef.current = setInterval(() => {
-      if (playerRef.current?.getCurrentTime) {
-        currentTimeRef.current = Math.floor(playerRef.current.getCurrentTime());
-      }
-    }, 1000);
-  }
+            if (!aiPausedRef.current) {
+              if (e.data === 2 && prev === 1) {
+                handleUserPlayerEvent("paused");
+              } else if (e.data === 1 && prev === 2) {
+                handleUserPlayerEvent("resumed");
+              }
+            }
+
+            aiPausedRef.current = false;
+          },
+          onError: async (e: any) => {
+            let errorMessage = "Unable to play this video.";
+            if (e.data === 100) errorMessage = "Video not found or removed.";
+            if (e.data === 101 || e.data === 150) errorMessage = "Video cannot be embedded.";
+
+            addMessage({
+              role: "system",
+              content: `${errorMessage} Trying another result...`,
+              time: getTime(),
+            });
+
+            try {
+              const fallbackQuery = decodeHtml(video.title);
+              const res = await fetch(`/api/youtube?q=${encodeURIComponent(fallbackQuery)}`);
+              const data = await res.json();
+              const alternatives: VideoResult[] = data.results ?? [];
+
+              const nextPlayable = alternatives.find(v => v.id && v.id !== video.id);
+
+              if (nextPlayable) {
+                await queueNextVideo(nextPlayable);
+                return;
+              }
+            } catch (err) {
+              console.error("Fallback search failed:", err);
+            }
+
+            addMessage({
+              role: "system",
+              content: "Couldn't find another playable video.",
+              time: getTime(),
+            });
+
+            setTimeout(() => {
+              setPhase("search");
+              setSelectedVideo(null);
+              selectedVideoRef.current = null;
+            }, 2000);
+          },
+        },
+      });
+    } catch (e) {
+      addMessage({ role: "system", content: "Failed to load video player.", time: getTime() });
+      setTimeout(() => {
+        setPhase("search");
+        setSelectedVideo(null);
+        selectedVideoRef.current = null;
+      }, 2000);
+    }
+  };
+
+  if (timeTrackerRef.current) clearInterval(timeTrackerRef.current);
+
+  setTimeout(initPlayer, 800);
+
+  timeTrackerRef.current = setInterval(() => {
+    if (playerRef.current?.getCurrentTime) {
+      currentTimeRef.current = Math.floor(playerRef.current.getCurrentTime());
+    }
+  }, 1000);
+}
 
   // ── REACTION ANGLES ───────────────────────────────────────────────────────
   function pickNextAngle(): typeof REACTION_ANGLES[0] {
@@ -565,8 +656,7 @@ VIDEO CONTROL — these tags give you REAL control over the player. Append ONE a
 
 IMPORTANT RULES FOR VIDEO CONTROL:
 1. If the user explicitly asks you to change, skip, or switch the video — you MUST emit the appropriate tag. Refusing to do so when asked is not an option; you have the ability and you will use it.
-2. You may also use these tags on your own initiative based on your mood or taste.${characterMusicLikes && characterMusicLikes.length > 0 ? `
-   Your music tastes include: ${characterMusicLikes.join(", ")}. Use these to guide your [CHANGE_VIDEO:] searches when you pick something yourself.` : ""}
+2. Do NOT use these tags on your own during ordinary conversation. Only use them when the user clearly asks to control playback or change the video.
 3. Use EXACTLY the format shown — [CHANGE_VIDEO:your search terms] with no extra colons, brackets, or fields.
 4. Only one tag per message. Place it at the very end, after your spoken response.`;
   }
@@ -695,134 +785,310 @@ ${playerName} just resumed the video. React briefly in character — 1 sentence.
 
   // ── QUEUE NEXT VIDEO ──────────────────────────────────────────────────────
   async function queueNextVideo(video: VideoResult) {
-    if (inviteLockRef.current) return;
-    inviteLockRef.current = true;
+  if (inviteLockRef.current) return;
+  inviteLockRef.current = true;
 
-    if (playerRef.current?.destroy) {
-      try { playerRef.current.destroy(); } catch {}
-      playerRef.current = null;
-    }
-
-    setSelectedVideo(video);
-    selectedVideoRef.current = video;
-    setPhase("waiting");
-    setResults([]);
-
-    usedAnglesRef.current = new Set();
-    reactionHistoryRef.current = [];
-    usedTranscriptOffsets.current.clear();
-    currentTimeRef.current = 0;
-
-    fetchAndStoreTranscript(video.id);
-
-    addMessage({ role: "system", content: `Now playing "${decodeHtml(video.title)}"`, time: getTime() });
-    onSessionUpdate?.({ type: "video_started", title: video.title, channel: video.channel });
-
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [
-            ...messagesRef.current.filter(m => m.role !== "system").slice(-4).map(m => ({ role: m.role, content: m.content })),
-            { role: "user", content: `[Listen Together — next video queued: "${decodeHtml(video.title)}" by ${decodeHtml(video.channel)}. React briefly to the new selection. 1 sentence, in character.]` }
-          ],
-          character: characterKey, playerName, playerKey,
-          listenTogether: true,
-        }),
-      });
-      const reply = await res.json();
-      const text = reply.messages?.[0]?.content ?? reply.content ?? "";
-      if (text) addMessage({ role: "assistant", content: text, time: getTime() });
-    } catch {}
-
-    await new Promise(r => setTimeout(r, 400));
-    startPlaying(video);
-    inviteLockRef.current = false;
+  if (periodicRef.current) {
+    clearTimeout(periodicRef.current);
+    periodicRef.current = null;
   }
+
+  if (timeTrackerRef.current) {
+    clearInterval(timeTrackerRef.current);
+    timeTrackerRef.current = null;
+  }
+
+  if (playerRef.current?.destroy) {
+    try {
+      playerRef.current.destroy();
+    } catch {}
+    playerRef.current = null;
+  }
+
+  aiPausedRef.current = false;
+  playerStateRef.current = -1;
+
+  setSelectedVideo(video);
+  selectedVideoRef.current = video;
+  setPhase("waiting");
+  setResults([]);
+
+  usedAnglesRef.current = new Set();
+  reactionHistoryRef.current = [];
+  usedTranscriptOffsets.current.clear();
+  currentTimeRef.current = 0;
+  transcriptRef.current = "";
+  setTranscript(null);
+
+  fetchAndStoreTranscript(video.id);
+
+  addMessage({
+    role: "system",
+    content: `Now playing "${decodeHtml(video.title)}"`,
+    time: getTime(),
+  });
+
+  onSessionUpdate?.({
+    type: "video_started",
+    title: video.title,
+    channel: video.channel,
+  });
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          ...messagesRef.current
+            .filter(m => m.role !== "system")
+            .slice(-4)
+            .map(m => ({ role: m.role, content: m.content })),
+          {
+            role: "user",
+            content: `[Listen Together — next video queued: "${decodeHtml(video.title)}" by ${decodeHtml(video.channel)}. React briefly to the new selection. 1 sentence, in character.]`,
+          },
+        ],
+        character: characterKey,
+        playerName,
+        playerKey,
+        listenTogether: true,
+      }),
+    });
+
+    const reply = await res.json();
+    const text = reply.messages?.[0]?.content ?? reply.content ?? "";
+    if (text) {
+      addMessage({ role: "assistant", content: text, time: getTime() });
+    }
+  } catch {}
+
+  await new Promise(r => setTimeout(r, 400));
+  startPlaying(video);
+  inviteLockRef.current = false;
+}
 
   // ── USER SENDS MESSAGE ────────────────────────────────────────────────────
-  async function sendMessage(stickerName?: string) {
-    const hasContent = input.trim() || stickerName || ltAttachedImage;
-    if (!hasContent || blockingRef.current || ltCooldown) return;
-    setLtCooldown(true);
-    setTimeout(() => setLtCooldown(false), 4000);
-    const text = input.trim();
-    const imageUrl = ltAttachedImage;
-    setInput("");
-    setLtAttachedImage(null);
-    setLtShowStickers(false);
+async function sendMessage(stickerName?: string) {
+  const hasContent = input.trim() || stickerName || ltAttachedImage;
+  if (!hasContent || blockingRef.current || ltCooldown) return;
 
-    addMessage({ role: "user", content: text, time: getTime(), ...(stickerName ? { stickerName } : {}), ...(imageUrl ? { imageUrl } : {}) } as any);
+  const text = input.trim();
+  const lowerText = text.toLowerCase();
 
-    const ct = currentTimeRef.current;
-    const video = selectedVideoRef.current;
-    const videoTitle = decodeHtml(video?.title ?? "this video");
-    const timeStr = ct > 0 ? ` at ${Math.floor(ct / 60)}:${String(ct % 60).padStart(2, "0")}` : "";
+  // ── Direct user playback commands (don't rely on AI) ─────────────────
+  const isPauseCmd =
+    /\b(pause|hold on|wait a sec|wait a second|stop it for a bit)\b/.test(lowerText);
 
-    const videoControlHint = `\n\nVIDEO CONTROL: You can control the player by appending a tag at the END of your reply — [CHANGE_VIDEO:search query], [PAUSE_VIDEO], [RESUME_VIDEO], [SKIP_VIDEO]. If the user asks you to change, skip, or switch the video, you MUST use the appropriate tag. Format exactly as shown, no extra colons or fields.`;
+  const isResumeCmd =
+    /\b(resume|continue|unpause|play again|start again|keep going)\b/.test(lowerText);
 
-    const userContent = stickerName
-      ? `[Listen Together — watching "${videoTitle}"${timeStr}]\n${playerName} sent a sticker: ${stickerName}${text ? ` — ${text}` : ""}${videoControlHint}`
-      : `[Listen Together — watching "${videoTitle}"${timeStr}]\n${text}${videoControlHint}`;
+  const isSkipCmd =
+    /\b(skip( this)?( video| song| music)?|next( video| song| music)?|change( the)?( video| song| music)?|switch( the)?( video| song| music)?|another( video| song| music)|different( video| song| music)|play something else|choose again|pick again)\b/i.test(lowerText);
 
-    const apiMessages: any[] = [
-      ...messagesRef.current.filter(m => m.role !== "system").slice(-8).map(m => ({ role: m.role, content: m.content })),
-      imageUrl
-        ? { role: "user", content: [{ type: "text", text: userContent }, { type: "image_url", image_url: { url: imageUrl } }] }
-        : { role: "user", content: userContent },
-    ];
+  const wantsYouToChoose =
+    /\b(you choose|you pick|your choice|choose for me|pick for me)\b/.test(lowerText);
 
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: apiMessages,
-          character: characterKey, playerName, playerKey,
-          listenTogether: true,
-          ltTranscript: transcriptRef.current || null,
-          ltCurrentTime: ct,
-        }),
+  if (!stickerName && !ltAttachedImage && text && phase === "playing") {
+    if (isPauseCmd) {
+      addMessage({ role: "user", content: text, time: getTime() });
+      setInput("");
+      setLtAttachedImage(null);
+      setLtShowStickers(false);
+
+      aiPausedRef.current = true;
+      try { playerRef.current?.pauseVideo?.(); } catch {}
+
+      addMessage({ role: "system", content: `${characterName} paused the video.`, time: getTime() });
+      setLtCooldown(true);
+      setTimeout(() => setLtCooldown(false), 1500);
+      return;
+    }
+
+    if (isResumeCmd) {
+      addMessage({ role: "user", content: text, time: getTime() });
+      setInput("");
+      setLtAttachedImage(null);
+      setLtShowStickers(false);
+
+      aiPausedRef.current = true;
+      try { playerRef.current?.playVideo?.(); } catch {}
+
+      addMessage({ role: "system", content: `${characterName} resumed the video.`, time: getTime() });
+      setLtCooldown(true);
+      setTimeout(() => setLtCooldown(false), 1500);
+      return;
+    }
+
+    if (isSkipCmd || wantsYouToChoose) {
+      addMessage({ role: "user", content: text, time: getTime() });
+      setInput("");
+      setLtAttachedImage(null);
+      setLtShowStickers(false);
+
+      const currentVideo = selectedVideoRef.current;
+      const fallbackQuery = currentVideo?.title || currentVideo?.channel || "relaxing music";
+
+      addMessage({
+        role: "system",
+        content: `${characterName} is picking another video...`,
+        time: getTime(),
       });
-      const reply = await res.json();
 
-      if (reply.annoyanceDelta && !blockingRef.current) {
-        annoyanceRef.current = Math.min(100, Math.max(0, annoyanceRef.current + reply.annoyanceDelta));
-        if (annoyanceRef.current >= 75) {
-          blockingRef.current = true;
-          const replyMsgs = reply.messages ?? [{ content: reply.content }];
-          for (let i = 0; i < replyMsgs.length; i++) {
-            if (i > 0) await new Promise(r => setTimeout(r, 500));
-            const m = replyMsgs[i];
-            if (m.content) addMessage({ role: "assistant", content: m.content, time: getTime() });
-          }
-          await new Promise(r => setTimeout(r, 800));
-          addMessage({ role: "system", content: `${characterName} has left the session.`, time: getTime() });
-          await new Promise(r => setTimeout(r, 1000));
-          onBlock("I have tolerated enough. Do not contact me again.");
-          return;
+      try {
+        if (periodicRef.current) {
+          clearTimeout(periodicRef.current);
+          periodicRef.current = null;
         }
+
+        if (timeTrackerRef.current) {
+          clearInterval(timeTrackerRef.current);
+          timeTrackerRef.current = null;
+        }
+
+        if (playerRef.current?.destroy) {
+          try { playerRef.current.destroy(); } catch {}
+          playerRef.current = null;
+        }
+
+        aiPausedRef.current = false;
+        playerStateRef.current = -1;
+
+        const res = await fetch(`/api/youtube?q=${encodeURIComponent(fallbackQuery)}`);
+        const data = await res.json();
+        const alternatives: VideoResult[] = data.results ?? [];
+
+        const nextPlayable = alternatives.find(v => v.id && v.id !== currentVideo?.id);
+
+        if (nextPlayable) {
+          await queueNextVideo(nextPlayable);
+        } else {
+          addMessage({
+            role: "system",
+            content: "Couldn't find another video right now.",
+            time: getTime(),
+          });
+          stopSession();
+        }
+      } catch (err) {
+        console.error("Failed to change video:", err);
+        addMessage({
+          role: "system",
+          content: "Couldn't change the video right now.",
+          time: getTime(),
+        });
+        stopSession();
       }
 
-      const replyMsgs = reply.messages ?? [{ content: reply.content }];
-      for (let i = 0; i < replyMsgs.length; i++) {
-        if (i > 0) await new Promise(r => setTimeout(r, 500));
-        const m = replyMsgs[i];
-        if (!m.content) continue;
-
-        // Parse video control tags from user-prompted replies too
-        const { clean, action } = parseVideoAction(m.content);
-        if (clean) {
-          addMessage({ role: "assistant", content: clean, time: getTime() });
-          reactionHistoryRef.current.push(clean);
-          if (reactionHistoryRef.current.length > 8) reactionHistoryRef.current.shift();
-        }
-        if (action) await executeVideoAction(action);
-      }
-    } catch (error) {
-      console.error("[listen] send message failed:", error);
+      setLtCooldown(true);
+      setTimeout(() => setLtCooldown(false), 1500);
+      return;
     }
   }
+
+  // ── Normal LT message flow ────────────────────────────────────────────
+  setLtCooldown(true);
+  setTimeout(() => setLtCooldown(false), 4000);
+
+  const imageUrl = ltAttachedImage;
+  setInput("");
+  setLtAttachedImage(null);
+  setLtShowStickers(false);
+
+  addMessage({
+    role: "user",
+    content: text,
+    time: getTime(),
+    ...(stickerName ? { stickerName } : {}),
+    ...(imageUrl ? { imageUrl } : {}),
+  } as any);
+
+  const ct = currentTimeRef.current;
+  const video = selectedVideoRef.current;
+  const videoTitle = decodeHtml(video?.title ?? "this video");
+  const timeStr = ct > 0 ? ` at ${Math.floor(ct / 60)}:${String(ct % 60).padStart(2, "0")}` : "";
+
+  const videoControlHint = `
+
+VIDEO CONTROL:
+- Only use a control tag if the user explicitly asks to control playback.
+- Allowed tags: [CHANGE_VIDEO:search query], [PAUSE_VIDEO], [RESUME_VIDEO], [SKIP_VIDEO]
+- If the user is just chatting or reacting, do not output any control tag.
+- Format exactly as shown.`;
+
+  const userContent = stickerName
+    ? `[Listen Together — watching "${videoTitle}"${timeStr}]
+${playerName} sent a sticker: ${stickerName}${text ? ` — ${text}` : ""}${videoControlHint}`
+    : `[Listen Together — watching "${videoTitle}"${timeStr}]
+${text}${videoControlHint}`;
+
+  const apiMessages: any[] = [
+    ...messagesRef.current.filter(m => m.role !== "system").slice(-8).map(m => ({ role: m.role, content: m.content })),
+    imageUrl
+      ? { role: "user", content: [{ type: "text", text: userContent }, { type: "image_url", image_url: { url: imageUrl } }] }
+      : { role: "user", content: userContent },
+  ];
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: apiMessages,
+        character: characterKey,
+        playerName,
+        playerKey,
+        listenTogether: true,
+        ltTranscript: transcriptRef.current || null,
+        ltCurrentTime: ct,
+      }),
+    });
+
+    const reply = await res.json();
+
+    if (reply.annoyanceDelta && !blockingRef.current) {
+      annoyanceRef.current = Math.min(100, Math.max(0, annoyanceRef.current + reply.annoyanceDelta));
+      if (annoyanceRef.current >= 75) {
+        blockingRef.current = true;
+        const replyMsgs = reply.messages ?? [{ content: reply.content }];
+        for (let i = 0; i < replyMsgs.length; i++) {
+          if (i > 0) await new Promise(r => setTimeout(r, 500));
+          const m = replyMsgs[i];
+          if (m.content) addMessage({ role: "assistant", content: m.content, time: getTime() });
+        }
+        await new Promise(r => setTimeout(r, 800));
+        addMessage({ role: "system", content: `${characterName} has left the session.`, time: getTime() });
+        await new Promise(r => setTimeout(r, 1000));
+        onBlock("I have tolerated enough. Do not contact me again.");
+        return;
+      }
+    }
+
+    const replyMsgs = reply.messages ?? [{ content: reply.content }];
+    for (let i = 0; i < replyMsgs.length; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 500));
+      const m = replyMsgs[i];
+      if (!m.content) continue;
+
+      const { clean, action } = parseVideoAction(m.content);
+
+      if (clean) {
+        addMessage({ role: "assistant", content: clean, time: getTime() });
+        reactionHistoryRef.current.push(clean);
+        if (reactionHistoryRef.current.length > 8) reactionHistoryRef.current.shift();
+      }
+
+      const userAskedForControl =
+        /\b(pause|resume|play|continue|unpause|skip|change|switch|another video|next video)\b/.test(lowerText);
+
+      if (action && userAskedForControl) {
+        await executeVideoAction(action);
+      }
+    }
+  } catch (error) {
+    console.error("[listen] send message failed:", error);
+  }
+}
 
   useEffect(() => {
     return () => {

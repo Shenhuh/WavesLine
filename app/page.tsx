@@ -425,161 +425,226 @@ export default function Home() {
 
 async function triggerAIReply(chatKey: string, messages: Message[]) {
   if (!player) return;
-  setTypingFor(chatKey); 
+  setTypingFor(chatKey);
   setLoading(true);
-  
+
   try {
     const res = await fetch("/api/chat", {
-      method: "POST", 
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        messages: messages.map(({ role, content, imageUrl, stickerName, gifUrl, gifCaption }) => ({ 
-          role, 
-          content, 
-          imageUrl, 
-          stickerName, 
-          gifUrl, 
-          gifCaption 
+        messages: messages.map(({ role, content, imageUrl, stickerName, gifUrl, gifCaption }) => ({
+          role,
+          content,
+          imageUrl,
+          stickerName,
+          gifUrl,
+          gifCaption,
         })),
         character: chatKey,
         playerName: player.name,
         playerKey: player.key,
       }),
     });
-    
+
     const reply = await res.json();
-    
+
     const rawContent: string = reply.messages?.[0]?.content ?? reply.content ?? "";
-    
-    console.log('AI Reply received:', rawContent);
-    
-    const ltMatch = rawContent.match(/\[LISTEN_TOGETHER:([^\]]+)\]/);
-    
-    if (ltMatch) {
-      console.log('🎵 Listen Together invite detected!', ltMatch[1]);
-      
-      const parts = ltMatch[1].split(':');
-      
-      // Extract what the AI wants to show
-      const videoId = parts[0]?.trim(); // We'll ignore this
-      const title = parts[1]?.trim() || ''; // This is what we'll search for
-      const channel = parts[2]?.trim() || '';
-      
-      // IMPORTANT: Remove the tag completely from the spoken text
-      const spokenText = rawContent.replace(ltMatch[0], '').trim();
-      
-      // Use the TITLE from the AI to search YouTube
-      let searchQuery = title;
-      
-      // If the title is generic, make it more specific
-      if (searchQuery && !searchQuery.toLowerCase().includes('wuthering waves')) {
-        searchQuery = `Wuthering Waves ${searchQuery}`;
-      }
-      
-      console.log('Searching YouTube for title:', searchQuery);
-      
-      let realVideoId = videoId; // Start with AI's ID as fallback
-      let realTitle = title;
-      let realChannel = channel;
-      
+    const ltData = reply.listenTogether ?? reply.messages?.[0]?.listenTogether ?? null;
+
+    console.log("AI Reply received:", rawContent);
+    console.log("LT data:", ltData);
+
+    if (ltData?.query) {
+      const searchQuery = ltData.query.trim();
+      const spokenText = rawContent.trim();
+
+      console.log("🎵 Listen Together query:", searchQuery);
+
+      let realVideoId = "";
+      let realTitle = "";
+      let realChannel = "";
+
       try {
-        // Search YouTube using the title from AI
         const searchRes = await fetch(`/api/youtube?q=${encodeURIComponent(searchQuery)}`);
         const searchData = await searchRes.json();
-        
+
         if (searchData.results && searchData.results.length > 0) {
-          // Take the FIRST result - this will be the most relevant video
           const firstResult = searchData.results[0];
           realVideoId = firstResult.id;
           realTitle = firstResult.title;
           realChannel = firstResult.channel;
-          
-          console.log('✅ Found real video as first result:', { 
-            videoId: realVideoId, 
+
+          console.log("✅ Found real video as first result:", {
+            videoId: realVideoId,
             title: realTitle,
-            channel: realChannel 
+            channel: realChannel,
           });
         } else {
-          console.log('❌ No search results found for:', searchQuery);
+          console.log("❌ No search results found for:", searchQuery);
+
+          if (spokenText) {
+            setAllMessages(prev => ({
+              ...prev,
+              [chatKey]: [
+                ...(prev[chatKey] ?? []),
+                {
+                  role: "assistant",
+                  content: spokenText,
+                  time: getTime(),
+                },
+              ],
+            }));
+          }
+
+          setAllMessages(prev => ({
+            ...prev,
+            [chatKey]: [
+              ...(prev[chatKey] ?? []),
+              {
+                role: "assistant",
+                content: "I couldn't find a playable video for that right now.",
+                time: getTime(),
+              },
+            ],
+          }));
+
+          setTypingFor(null);
+          setLoading(false);
+          return;
         }
       } catch (error) {
-        console.error('Error searching YouTube:', error);
+        console.error("Error searching YouTube:", error);
+
+        if (spokenText) {
+          setAllMessages(prev => ({
+            ...prev,
+            [chatKey]: [
+              ...(prev[chatKey] ?? []),
+              {
+                role: "assistant",
+                content: spokenText,
+                time: getTime(),
+              },
+            ],
+          }));
+        }
+
+        setAllMessages(prev => ({
+          ...prev,
+          [chatKey]: [
+            ...(prev[chatKey] ?? []),
+            {
+              role: "assistant",
+              content: "I couldn't open Listen Together right now.",
+              time: getTime(),
+            },
+          ],
+        }));
+
+        setTypingFor(null);
+        setLoading(false);
+        return;
       }
-      
-      // Add the spoken text first if it exists (WITHOUT the tag)
+
       if (spokenText) {
         setAllMessages(prev => ({
           ...prev,
-          [chatKey]: [...(prev[chatKey] ?? []), { 
-            role: "assistant", 
-            content: spokenText, // This has the tag removed
-            time: getTime() 
-          }],
+          [chatKey]: [
+            ...(prev[chatKey] ?? []),
+            {
+              role: "assistant",
+              content: spokenText,
+              time: getTime(),
+            },
+          ],
         }));
-        
+
         await new Promise(r => setTimeout(r, 500));
       }
-      
-      // Add the invite bubble with the REAL video ID from search
+
       setAllMessages(prev => ({
         ...prev,
-        [chatKey]: [...(prev[chatKey] ?? []), {
-          role: "assistant",
-          content: "", // Empty content - just the invite bubble
-          time: getTime(),
-          isLTInvite: true,
-          ltInviteVideoId: realVideoId,
-          ltInviteTitle: decodeHtml(realTitle),
-          ltInviteChannel: decodeHtml(realChannel),
-          ltInviteAccepted: undefined,
-        }],
+        [chatKey]: [
+          ...(prev[chatKey] ?? []),
+          {
+            role: "assistant",
+            content: "",
+            time: getTime(),
+            isLTInvite: true,
+            ltInviteVideoId: realVideoId,
+            ltInviteTitle: decodeHtml(realTitle),
+            ltInviteChannel: decodeHtml(realChannel),
+            ltInviteAccepted: undefined,
+          },
+        ],
       }));
-      
-      console.log('🎬 Invite sent with real video:', { 
-        id: realVideoId, 
-        title: realTitle 
+
+      console.log("🎬 Invite sent with real video:", {
+        id: realVideoId,
+        title: realTitle,
       });
-      
+
       setTypingFor(null);
       setLoading(false);
       return;
     }
 
-    // If no LT invite, handle normal reply
-    const replyMsgs: { content: string; gifUrl?: string; stickerName?: string }[] =
-      reply.messages ?? [{ content: reply.content, gifUrl: reply.gifUrl, stickerName: reply.stickerName }];
-    
+    const replyMsgs: {
+      content: string;
+      gifUrl?: string;
+      stickerName?: string;
+      listenTogether?: {
+        query: string;
+      } | null;
+    }[] = reply.messages ?? [
+      {
+        content: reply.content,
+        gifUrl: reply.gifUrl,
+        stickerName: reply.stickerName,
+        listenTogether: reply.listenTogether ?? null,
+      },
+    ];
+
     for (let i = 0; i < replyMsgs.length; i++) {
       if (i > 0) await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
       const m = replyMsgs[i];
-      
-      // Final safety check: If any content somehow still has the tag, remove it
+
       let cleanContent = m.content ?? "";
-      if (cleanContent.includes('[LISTEN_TOGETHER:')) {
-        cleanContent = cleanContent.replace(/\[LISTEN_TOGETHER:[^\]]+\]/, '').trim();
+      if (cleanContent.includes("[LISTEN_TOGETHER:")) {
+        cleanContent = cleanContent.replace(/\[LISTEN_TOGETHER:[^\]]+\]/g, "").trim();
       }
-      
+      if (cleanContent.includes("[STICKER:")) {
+        cleanContent = cleanContent.replace(/\[STICKER:[^\]]+\]/g, "").trim();
+      }
+
       setAllMessages(prev => ({
         ...prev,
-        [chatKey]: [...(prev[chatKey] ?? []), {
-          role: "assistant", 
-          content: cleanContent, 
-          time: getTime(),
-          gifUrl: m.gifUrl ?? undefined, 
-          stickerName: m.stickerName ?? undefined,
-        }],
+        [chatKey]: [
+          ...(prev[chatKey] ?? []),
+          {
+            role: "assistant",
+            content: cleanContent,
+            time: getTime(),
+            gifUrl: m.gifUrl ?? undefined,
+            stickerName: m.stickerName ?? undefined,
+          },
+        ],
       }));
     }
 
     if (activeChatRef.current !== chatKey) {
       setUnread(prev => ({ ...prev, [chatKey]: true }));
       const last = replyMsgs[replyMsgs.length - 1]?.content ?? "";
-      setToast({ key: chatKey, name: CHAT_CHARACTERS[chatKey]?.name || chatKey, preview: last.length > 30 ? last.slice(0, 30) + "…" : last || "New message" });
+      setToast({
+        key: chatKey,
+        name: CHAT_CHARACTERS[chatKey]?.name || chatKey,
+        preview: last.length > 30 ? last.slice(0, 30) + "…" : last || "New message",
+      });
       if (toastTimer.current) clearTimeout(toastTimer.current);
       toastTimer.current = setTimeout(() => setToast(null), 4000);
     }
 
-    // Handle annoyance delta
     if (reply.annoyanceDelta != null && !blockedChats[chatKey]) {
       const char = CHAT_CHARACTERS[chatKey];
       const threshold = char?.annoyanceThreshold ?? 100;
@@ -592,9 +657,15 @@ async function triggerAIReply(chatKey: string, messages: Message[]) {
           blockingRef.current[chatKey] = true;
           setTimeout(async () => {
             await new Promise(r => setTimeout(r, 400));
-            setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: blockMsg, time: getTime() }] }));
+            setAllMessages(p => ({
+              ...p,
+              [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: blockMsg, time: getTime() }],
+            }));
             await new Promise(r => setTimeout(r, 600));
-            setAllMessages(p => ({ ...p, [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: "[has blocked you]", time: getTime(), isBlock: true }] }));
+            setAllMessages(p => ({
+              ...p,
+              [chatKey]: [...(p[chatKey] ?? []), { role: "assistant", content: "[has blocked you]", time: getTime(), isBlock: true }],
+            }));
             setBlockedChats(p => ({ ...p, [chatKey]: true }));
           }, 0);
           return { ...prev, [chatKey]: 0 };
@@ -603,16 +674,24 @@ async function triggerAIReply(chatKey: string, messages: Message[]) {
       });
     }
 
-    // Auto-play prebuilt song
     if (reply.singSong && !blockingRef.current[chatKey + "_song"]) {
       blockingRef.current[chatKey + "_song"] = true;
       await new Promise(r => setTimeout(r, 600));
-      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "Fine.", time: getTime() }] }));
+      setAllMessages(prev => ({
+        ...prev,
+        [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "Fine.", time: getTime() }],
+      }));
       await new Promise(r => setTimeout(r, 800));
-      setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "*begins to play*", time: getTime() }] }));
+      setAllMessages(prev => ({
+        ...prev,
+        [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "*begins to play*", time: getTime() }],
+      }));
       for (const line of PHROLOVA_SONG) {
         await new Promise(r => setTimeout(r, 900 + Math.random() * 500));
-        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: line, time: getTime() }] }));
+        setAllMessages(prev => ({
+          ...prev,
+          [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: line, time: getTime() }],
+        }));
       }
       await new Promise(r => setTimeout(r, 1200));
       const updatedMsgs = [...messages, { role: "assistant" as const, content: "[just finished singing her song for you]" }];
@@ -620,24 +699,31 @@ async function triggerAIReply(chatKey: string, messages: Message[]) {
       if (!blockingRef.current[chatKey]) {
         blockingRef.current[chatKey] = true;
         await new Promise(r => setTimeout(r, 800));
-        setAllMessages(prev => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "[Phrolova has blocked you]", time: getTime(), isBlock: true }] }));
+        setAllMessages(prev => ({
+          ...prev,
+          [chatKey]: [...(prev[chatKey] ?? []), { role: "assistant", content: "[Phrolova has blocked you]", time: getTime(), isBlock: true }],
+        }));
         setBlockedChats(prev => ({ ...prev, [chatKey]: true }));
       }
       blockingRef.current[chatKey + "_song"] = false;
       return;
     }
   } catch (error) {
-    console.error('Error in AI reply:', error);
-    setAllMessages(prev => ({ 
-      ...prev, 
-      [chatKey]: [...(prev[chatKey] ?? []), { 
-        role: "assistant", 
-        content: "signal lost.", 
-        time: getTime() 
-      }] 
+    console.error("Error in AI reply:", error);
+    setAllMessages(prev => ({
+      ...prev,
+      [chatKey]: [
+        ...(prev[chatKey] ?? []),
+        {
+          role: "assistant",
+          content: "signal lost.",
+          time: getTime(),
+        },
+      ],
     }));
   }
-  setTypingFor(null); 
+
+  setTypingFor(null);
   setLoading(false);
   setTimeout(() => inputRef.current?.focus(), 50);
 }
