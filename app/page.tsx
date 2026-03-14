@@ -85,8 +85,21 @@ function Avatar({ src, name, size = 36, color = "#888" }: { src: string; name: s
 function StickerImg({ name }: { name: string }) {
   const exts = ["png", "gif", "webp", "jpg"];
   const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    setIdx(0);
+  }, [name]);
+
   if (idx >= exts.length) return null;
-  return <img src={`/stickers/${name}.${exts[idx]}`} alt="sticker" onError={() => setIdx(i => i + 1)} style={{ width: 90, height: 90, objectFit: "contain" }} />;
+
+  return (
+    <img
+      src={`/stickers/${name}.${exts[idx]}`}
+      alt={name}
+      onError={() => setIdx(i => i + 1)}
+      style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+    />
+  );
 }
 
 function CharacterPicker({ value, onChange }: { value: string; onChange: (k: string) => void }) {
@@ -988,16 +1001,31 @@ async function triggerAIReply(chatKey: string, messages: Message[]) {
                           <div style={{ flex: 1, overflowY: "auto", padding: 8, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
                             {stickers.length === 0 && <div style={{ gridColumn: "1/-1", textAlign: "center", color: "#404258", fontSize: 11, padding: "20px 0" }}>No stickers yet</div>}
                             {stickers.map(file => {
-                              const name = file.replace(/\.(png|gif|webp|jpg)$/i, "");
-                              return (
-                                <button key={file} onClick={() => sendSticker(name)}
-                                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 7, padding: 4, cursor: "pointer", aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center" }}
-                                  onMouseEnter={e => (e.currentTarget.style.background = (activeChar?.color || "#c8a830") + "22")}
-                                  onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}>
-                                  <img src={`/stickers/${file}`} alt={name} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-                                </button>
-                              );
-                            })}
+  const name = file.replace(/\.(png|gif|webp|jpg)$/i, "");
+  return (
+    <button
+      key={file}
+      onClick={() => sendSticker(name)}
+      style={{
+        background: "rgba(255,255,255,0.04)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 7,
+        padding: 4,
+        cursor: "pointer",
+        aspectRatio: "1",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center"
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = (activeChar?.color || "#c8a830") + "22")}
+      onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+    >
+      <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <StickerImg name={name} />
+      </div>
+    </button>
+  );
+})}
                           </div>
                         )}
                         {mediaTab === "gif" && (
