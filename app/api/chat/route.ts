@@ -1,7 +1,11 @@
 // app/api/chat/route.ts
 import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
-import { buildSystemPrompt, getCharacterReferenceImages, CHARACTERS } from "@/app/characters/characters";
+import {
+  buildSystemPrompt,
+  getCharacterReferenceImages,
+  CHARACTERS,
+} from "@/app/characters/characters";
 import {
   createSession,
   processMessage,
@@ -48,7 +52,11 @@ function getSession(userId: string, characterKey: string): CharacterSession {
   return sessionStore.get(key)!;
 }
 
-function saveSession(userId: string, characterKey: string, session: CharacterSession) {
+function saveSession(
+  userId: string,
+  characterKey: string,
+  session: CharacterSession
+) {
   sessionStore.set(`${userId}:${characterKey}`, session);
 }
 
@@ -70,7 +78,9 @@ function getAvailableStickers(): string[] {
         if (entry.isDirectory()) {
           scan(path.join(dir, entry.name), prefix + entry.name + "/");
         } else if (/\.(png|gif|webp|jpg|jpeg)$/i.test(entry.name)) {
-          results.push(prefix + entry.name.replace(/\.(png|gif|webp|jpg|jpeg)$/i, ""));
+          results.push(
+            prefix + entry.name.replace(/\.(png|gif|webp|jpg|jpeg)$/i, "")
+          );
         }
       }
     }
@@ -94,7 +104,9 @@ async function fetchGiphyGif(searchTerm: string): Promise<string | null> {
   }
 
   try {
-    const url = `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(searchTerm)}&limit=8&rating=pg-13`;
+    const url = `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(
+      searchTerm
+    )}&limit=8&rating=pg-13`;
 
     const res = await fetch(url);
     if (!res.ok) return null;
@@ -149,7 +161,7 @@ const OPENROUTER_FALLBACKS = [
   "meta-llama/llama-3.3-70b-instruct:free",
 ];
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /* ───────────────── PARAMS ───────────────── */
 
@@ -169,7 +181,11 @@ const PARAMS_LT = {
 
 /* ───────────────── MODEL CALLERS ───────────────── */
 
-async function callDeepSeek(messages: ChatMessage[], systemPrompt: string, params = PARAMS) {
+async function callDeepSeek(
+  messages: ChatMessage[],
+  systemPrompt: string,
+  params = PARAMS
+) {
   const response = await deepseekClient.chat.completions.create({
     model: "deepseek-chat",
     messages: [{ role: "system", content: systemPrompt }, ...(messages as any)],
@@ -179,7 +195,12 @@ async function callDeepSeek(messages: ChatMessage[], systemPrompt: string, param
   return response.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
-async function callOpenRouter(model: string, messages: ChatMessage[], systemPrompt: string, params = PARAMS) {
+async function callOpenRouter(
+  model: string,
+  messages: ChatMessage[],
+  systemPrompt: string,
+  params = PARAMS
+) {
   const response = await openrouterClient.chat.completions.create({
     model,
     messages: [{ role: "system", content: systemPrompt }, ...(messages as any)],
@@ -202,15 +223,23 @@ async function callOpenAIVision(
       role: "user",
       content: [
         { type: "text", text: "Reference images of yourself:" },
-        ...(referenceImageUrl ? [{ type: "image_url", image_url: { url: referenceImageUrl } }] : []),
-        ...(referenceImageChibiUrl ? [{ type: "image_url", image_url: { url: referenceImageChibiUrl } }] : []),
+        ...(referenceImageUrl
+          ? [{ type: "image_url", image_url: { url: referenceImageUrl } }]
+          : []),
+        ...(referenceImageChibiUrl
+          ? [{ type: "image_url", image_url: { url: referenceImageChibiUrl } }]
+          : []),
       ],
     });
   }
 
   const response = await openaiClient.chat.completions.create({
     model: "gpt-4o-mini",
-    messages: [{ role: "system", content: systemPrompt }, ...extra, ...(messages as any)],
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...extra,
+      ...(messages as any),
+    ],
     ...PARAMS,
   });
 
@@ -232,7 +261,7 @@ type ParsedMessage = {
 function parseAIResponse(raw: string): ParsedMessage[] {
   const parts = raw.split(/\s*\|\|\|\s*/).filter(Boolean);
 
-  return parts.map(p => {
+  return parts.map((p) => {
     let text = p.trim();
 
     let gifQuery: string | null = null;
@@ -295,7 +324,8 @@ export async function POST(req: NextRequest) {
     const currentTime = body.ltCurrentTime;
 
     const rawMessages = (body.messages ?? []).slice(-MAX_HISTORY);
-    const userMessage: string = body.userMessage ?? rawMessages.at(-1)?.content ?? "";
+    const userMessage: string =
+      body.userMessage ?? rawMessages.at(-1)?.content ?? "";
 
     const availableStickers = getAvailableStickers();
 
@@ -310,8 +340,17 @@ export async function POST(req: NextRequest) {
       const char = CHARACTERS[character];
       return NextResponse.json({
         role: "assistant",
-        messages: [{ content: char?.annoyanceBlockMessage ?? "...", gifUrl: null, stickerName: null, listenTogether: null }],
+        messages: [
+          {
+            content: char?.annoyanceBlockMessage ?? "...",
+            gifUrl: null,
+            stickerName: null,
+            listenTogether: null,
+          },
+        ],
         blocked: true,
+        annoyanceDelta: 0,
+        mood: session.mood ?? char?.defaultMood ?? "neutral",
         session: {
           mood: session.mood,
           affinity: session.affinity,
@@ -373,7 +412,9 @@ Comment on what is happening in the scene.`;
     const base = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
     const refs = getCharacterReferenceImages(character);
     const referenceImageUrl = refs.normal ? `${base}${refs.normal}` : undefined;
-    const referenceImageChibiUrl = refs.chibi ? `${base}${refs.chibi}` : undefined;
+    const referenceImageChibiUrl = refs.chibi
+      ? `${base}${refs.chibi}`
+      : undefined;
 
     const messages: ChatMessage[] = rawMessages.map((m: any) => ({
       role: m.role,
@@ -399,7 +440,12 @@ Comment on what is happening in the scene.`;
       if (!rawContent) {
         for (const model of OPENROUTER_FALLBACKS) {
           try {
-            rawContent = await callOpenRouter(model, messages, systemPrompt, params);
+            rawContent = await callOpenRouter(
+              model,
+              messages,
+              systemPrompt,
+              params
+            );
             if (rawContent) break;
           } catch (err: any) {
             if (err?.status === 429) await sleep(800);
@@ -408,7 +454,12 @@ Comment on what is happening in the scene.`;
       }
     } else {
       try {
-        rawContent = await callOpenAIVision(messages, systemPrompt, referenceImageUrl, referenceImageChibiUrl);
+        rawContent = await callOpenAIVision(
+          messages,
+          systemPrompt,
+          referenceImageUrl,
+          referenceImageChibiUrl
+        );
       } catch {}
 
       if (!rawContent) {
@@ -421,23 +472,44 @@ Comment on what is happening in the scene.`;
     if (!rawContent) {
       return NextResponse.json({
         role: "assistant",
-        messages: [{ content: "all channels busy.", gifUrl: null, stickerName: null, listenTogether: null }],
+        messages: [
+          {
+            content: "all channels busy.",
+            gifUrl: null,
+            stickerName: null,
+            listenTogether: null,
+          },
+        ],
+        blocked: session?.blocked ?? false,
+        annoyanceDelta: 0,
+        mood: session?.mood ?? CHARACTERS[character]?.defaultMood ?? "neutral",
+        session: session
+          ? {
+              mood: session.mood,
+              affinity: session.affinity,
+              annoyance: session.annoyance,
+              blocked: session.blocked,
+            }
+          : undefined,
       });
     }
 
     const parsed = parseAIResponse(rawContent);
+    const totalAnnoyanceDelta = parsed.reduce(
+      (sum, p) => sum + p.annoyanceDelta,
+      0
+    );
 
     if (session) {
       const char = CHARACTERS[character];
       if (char) {
-        const totalAnnoyanceDelta = parsed.reduce((sum, p) => sum + p.annoyanceDelta, 0);
         session = processMessage(session, char, userMessage, totalAnnoyanceDelta);
         saveSession(userId, character, session);
       }
     }
 
     const messagesOut = await Promise.all(
-      parsed.map(async p => {
+      parsed.map(async (p) => {
         let gifUrl: string | null = null;
         if (p.gifQuery) gifUrl = await fetchGiphyGif(p.gifQuery);
 
@@ -457,6 +529,9 @@ Comment on what is happening in the scene.`;
       gifUrl: messagesOut[0]?.gifUrl ?? null,
       stickerName: messagesOut[0]?.stickerName ?? null,
       listenTogether: messagesOut[0]?.listenTogether ?? null,
+      blocked: session?.blocked ?? false,
+      annoyanceDelta: totalAnnoyanceDelta,
+      mood: session?.mood ?? CHARACTERS[character]?.defaultMood ?? "neutral",
       session: session
         ? {
             mood: session.mood,
@@ -471,7 +546,17 @@ Comment on what is happening in the scene.`;
 
     return NextResponse.json({
       role: "assistant",
-      messages: [{ content: "something broke.", gifUrl: null, stickerName: null, listenTogether: null }],
+      messages: [
+        {
+          content: "something broke.",
+          gifUrl: null,
+          stickerName: null,
+          listenTogether: null,
+        },
+      ],
+      blocked: false,
+      annoyanceDelta: 0,
+      mood: "neutral",
     });
   }
 }

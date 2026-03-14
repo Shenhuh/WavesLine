@@ -1296,7 +1296,20 @@ ${text}${videoControlHint}`;
                 Change Video
               </button>
             )}
-            <button onClick={onClose} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>✕</button>
+            <button
+  onClick={() => {
+    addMessage({
+      role: "system",
+      content: "Listen Together session ended.",
+      time: getTime(),
+    });
+    stopSession();
+    onClose();
+  }}
+  style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 18, lineHeight: 1 }}
+>
+  ✕
+</button>
           </div>
         </div>
 

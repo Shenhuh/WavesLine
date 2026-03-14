@@ -8,14 +8,13 @@ import type { CharacterDef, Mood, AffinityTier } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SESSION
-// The live per-user, per-character state you store and pass into every request.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface CharacterSession {
   characterKey: string;
   mood: Mood;
   affinity: number;      // 0–100
-  annoyance: number;     // 0–100  (mirrors what you already track client-side)
+  annoyance: number;     // 0–100
   blocked: boolean;
   messageCount: number;  // total messages exchanged this session
 }
@@ -60,28 +59,53 @@ function clamp(n: number, min: number, max: number): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// EXTRA ANNOYANCE RULES
+// deterministic backup so rude triggers actually raise annoyance even when
+// the model forgets to emit [ANN:+N]
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getTriggerAnnoyanceDelta(char: CharacterDef, userMessage: string): number {
+  const lower = userMessage.toLowerCase();
+  let delta = 0;
+
+  for (const shift of char.moodShifts ?? []) {
+    const trigger = shift.trigger.toLowerCase();
+    if (!lower.includes(trigger)) continue;
+
+    if (shift.affinityDelta < 0) {
+      delta += Math.abs(shift.affinityDelta) * 4;
+    }
+
+    if (trigger === "idiot") delta = Math.max(delta, 18);
+    if (trigger === "shut up") delta = Math.max(delta, 28);
+  }
+
+  return delta;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PROCESS MESSAGE
-// Call this after every user→AI exchange, once you have the ANN delta.
-// Returns a new session object — never mutates the input.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function processMessage(
   session: CharacterSession,
   char: CharacterDef,
   userMessage: string,
-  annoyanceDelta: number   // already parsed from [ANN:+N] tag in your route
+  annoyanceDelta: number
 ): CharacterSession {
   if (session.blocked) return session;
 
   let { mood, affinity, annoyance, messageCount } = session;
+  const lower = userMessage.toLowerCase();
 
-  // 1. Apply annoyance delta from the model's own [ANN:] tag
-  annoyance = clamp(annoyance + annoyanceDelta, 0, 100);
-  const blocked = annoyance >= char.annoyanceThreshold;
+  // 1. Apply model ANN plus deterministic trigger annoyance
+  const triggerAnnoyanceDelta = getTriggerAnnoyanceDelta(char, lower);
+  const totalAnnoyance = annoyanceDelta + triggerAnnoyanceDelta;
+
+  annoyance = clamp(annoyance + totalAnnoyance, 0, 100);
 
   // 2. Mood + affinity shift from message content (first match wins)
   if (char.moodShifts) {
-    const lower = userMessage.toLowerCase();
     for (const shift of char.moodShifts) {
       if (lower.includes(shift.trigger.toLowerCase())) {
         mood = shift.to;
@@ -91,19 +115,34 @@ export function processMessage(
     }
   }
 
-  // 3. Passive affinity growth — +1 every 10 messages, very slow and organic
+  // 3. If annoyance is high, force colder moods
+  if (annoyance >= 85) {
+    mood = "angry" in MOOD_GUIDANCE ? ("angry" as Mood) : "annoyed";
+  } else if (annoyance >= 60) {
+    mood = "annoyed";
+  }
+
+  // 4. Passive affinity growth
   messageCount += 1;
-  if (messageCount % 10 === 0) {
+  if (messageCount % 10 === 0 && annoyance < 35) {
     affinity = clamp(affinity + 1, 0, 100);
   }
 
-  return { ...session, mood, affinity, annoyance, blocked, messageCount };
+  // 5. Final block check
+  const blocked = annoyance >= (char.annoyanceThreshold ?? 100);
+
+  return {
+    ...session,
+    mood,
+    affinity,
+    annoyance,
+    blocked,
+    messageCount,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONVERSATION STARTER
-// Returns a random line valid for the current mood + affinity tier.
-// Returns null if no starters match (character stays silent).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function pickConversationStarter(
@@ -115,9 +154,10 @@ export function pickConversationStarter(
 
   const currentTierIdx = tierIndex(getAffinityTier(session.affinity));
 
-  const valid = char.conversationStarters.filter(s =>
-    s.moods.includes(session.mood) &&
-    tierIndex(s.minTier) <= currentTierIdx
+  const valid = char.conversationStarters.filter(
+    (s) =>
+      s.moods.includes(session.mood) &&
+      tierIndex(s.minTier) <= currentTierIdx
   );
 
   if (!valid.length) return null;
@@ -126,8 +166,6 @@ export function pickConversationStarter(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PERSONALITY BLOCK
-// Injected into the system prompt so the model knows the character's
-// current emotional state and relationship context.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function buildPersonalityBlock(
@@ -143,6 +181,7 @@ export function buildPersonalityBlock(
     "━━━━━━━━━━━━━━━━━━━━",
     `MOOD: ${session.mood}`,
     `RELATIONSHIP: ${tier} (${session.affinity}/100 affinity)`,
+    `ANNOYANCE: ${session.annoyance}/100`,
   ];
 
   if (char.likes?.length) {
@@ -152,32 +191,30 @@ export function buildPersonalityBlock(
     lines.push(`YOU RESPOND COLDLY/NEGATIVELY TO: ${char.dislikes.join(", ")}`);
   }
 
-  // Tier-specific tone directive from the character definition
   const tierNote = char.tierDirectives?.[tier];
   if (tierNote) {
     lines.push(`TONE AT THIS TIER: ${tierNote}`);
   }
 
-  // Mood guidance — shapes how the character responds, not just what they say
   lines.push(MOOD_GUIDANCE[session.mood]);
 
   return lines.join("\n");
 }
 
 const MOOD_GUIDANCE: Record<Mood, string> = {
-  content:    "MOOD GUIDANCE: You are at ease. Responses may carry quiet calm or dry warmth.",
-  neutral:    "MOOD GUIDANCE: Unaffected. Measured, minimal.",
-  happy:      "MOOD GUIDANCE: Something has lifted. You are slightly more open than usual — rare.",
-  excited:    "MOOD GUIDANCE: A topic has genuinely caught your interest. This is unusual for you.",
-  melancholic:"MOOD GUIDANCE: The past is close today. Slower, quieter, heavier.",
-  focused:    "MOOD GUIDANCE: You are locked onto something. Direct, economical with words.",
-  annoyed:    "MOOD GUIDANCE: Patience is thin. Shorter replies, sharper edges.",
-  angry:      "MOOD GUIDANCE: Cold fury, not hot. Something has genuinely provoked you.",
-  cold:       "MOOD GUIDANCE: You have withdrawn. Minimal engagement. One or two words where possible.",
-  flustered:  "MOOD GUIDANCE: Something caught you off guard. You recover quickly — don't linger on it.",
+  content: "MOOD GUIDANCE: You are at ease. Responses may carry quiet calm or dry warmth.",
+  neutral: "MOOD GUIDANCE: Unaffected. Measured, minimal.",
+  happy: "MOOD GUIDANCE: Something has lifted. You are slightly more open than usual — rare.",
+  excited: "MOOD GUIDANCE: A topic has genuinely caught your interest. This is unusual for you.",
+  melancholic: "MOOD GUIDANCE: The past is close today. Slower, quieter, heavier.",
+  focused: "MOOD GUIDANCE: You are locked onto something. Direct, economical with words.",
+  annoyed: "MOOD GUIDANCE: Patience is thin. Shorter replies, sharper edges.",
+  angry: "MOOD GUIDANCE: Cold fury, not hot. Something has genuinely provoked you.",
+  cold: "MOOD GUIDANCE: You have withdrawn. Minimal engagement. One or two words where possible.",
+  flustered: "MOOD GUIDANCE: Something caught you off guard. You recover quickly — don't linger on it.",
 
-  curious:    "MOOD GUIDANCE: Analytical curiosity. You probe deeper with questions.",
-  calm:       "MOOD GUIDANCE: Stable and composed. Your tone is reassuring and steady.",
-  concerned:  "MOOD GUIDANCE: You sense distress. Your tone becomes attentive and protective.",
-  playful:    "MOOD GUIDANCE: Lighthearted and teasing. You allow small jokes or playful remarks.",
+  curious: "MOOD GUIDANCE: Analytical curiosity. You probe deeper with questions.",
+  calm: "MOOD GUIDANCE: Stable and composed. Your tone is reassuring and steady.",
+  concerned: "MOOD GUIDANCE: You sense distress. Your tone becomes attentive and protective.",
+  playful: "MOOD GUIDANCE: Lighthearted and teasing. You allow small jokes or playful remarks.",
 };
