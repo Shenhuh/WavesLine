@@ -4,10 +4,14 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 // @ts-ignore
 import { MMDLoader } from "three/examples/jsm/loaders/MMDLoader.js";
+// @ts-ignore
+import { MMDPose } from "three/examples/jsm/animation/MMDAnimationHelper.js";
 
 type LuukPortraitProps = {
   className?: string;
   mood?: "neutral" | "focused" | "curious" | "concerned" | "annoyed" | "calm";
+  onUserMessage?: boolean;
+  onBlockWarning?: boolean;
 };
 
 type MoodName = NonNullable<LuukPortraitProps["mood"]>;
@@ -17,43 +21,86 @@ const MOOD_MORPHS: Record<
   Array<{ names: string[]; value: number }>
 > = {
   neutral: [],
-
   focused: [
     { names: ["キリッ"], value: 0.45 },
     { names: ["ｷﾘｯ目"], value: 0.4 },
   ],
-
   curious: [
     { names: ["びっくり"], value: 0.42 },
     { names: ["にこり"], value: 0.12 },
   ],
-
   concerned: [
     { names: ["困る"], value: 0.5 },
     { names: ["悲しい目"], value: 0.4 },
   ],
-
   annoyed: [
     { names: ["怒り"], value: 0.55 },
     { names: ["怒り目"], value: 0.5 },
     { names: ["じと目"], value: 0.3 },
   ],
-
   calm: [
     { names: ["にこり"], value: 0.35 },
     { names: ["なごみ"], value: 0.28 },
     { names: ["笑い目"], value: 0.22 },
   ],
 };
+
+type Gesture = "none" | "nod" | "shake";
+
 export default function LuukPortrait({
   className,
   mood = "neutral",
+  onUserMessage = false,
+  onBlockWarning = false,
 }: LuukPortraitProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const modelRef = useRef<THREE.Object3D | null>(null);
   const applyMoodRef = useRef<
     ((root: THREE.Object3D, mood: LuukPortraitProps["mood"]) => void) | null
   >(null);
+
+  const currentMoodRef = useRef<MoodName>("neutral");
+  const targetMoodRef = useRef<MoodName>(mood);
+  const blendFactorRef = useRef(1.0);
+  const blinkSpeedRef = useRef(1.0);
+  const gestureQueue = useRef<Array<{ type: Gesture; duration: number; startTime: number }>>([]);
+  const headBoneRef = useRef<THREE.Object3D | null>(null);
+  const armBones = useRef<{
+    left: { upper: THREE.Object3D | null; lower: THREE.Object3D | null; hand: THREE.Object3D | null };
+    right: { upper: THREE.Object3D | null; lower: THREE.Object3D | null; hand: THREE.Object3D | null };
+  }>({
+    left: { upper: null, lower: null, hand: null },
+    right: { upper: null, lower: null, hand: null }
+  });
+  const shoulderRefs = useRef({
+    left: { bone: null as THREE.Object3D | null, baseY: 0, currentY: 0 },
+    right: { bone: null as THREE.Object3D | null, baseY: 0, currentY: 0 }
+  });
+  const chestBones = useRef<THREE.Object3D[]>([]);
+  const hairBones = useRef<THREE.Object3D[]>([]);
+
+  useEffect(() => {
+    targetMoodRef.current = mood;
+    if (currentMoodRef.current !== targetMoodRef.current) {
+      blendFactorRef.current = 0;
+    }
+  }, [mood]);
+
+  useEffect(() => {
+    if (onUserMessage) {
+      const startTime = performance.now() / 1000;
+      gestureQueue.current.push({ type: "nod", duration: 0.3, startTime });
+      blinkSpeedRef.current = 2.0;
+      setTimeout(() => { blinkSpeedRef.current = 1.0; }, 1000);
+    }
+  }, [onUserMessage]);
+
+  useEffect(() => {
+    if (onBlockWarning) {
+      const startTime = performance.now() / 1000;
+      gestureQueue.current.push({ type: "shake", duration: 0.2, startTime });
+    }
+  }, [onBlockWarning]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -65,10 +112,12 @@ export default function LuukPortrait({
     let model: THREE.Object3D | null = null;
     let frameId = 0;
     let disposed = false;
+    let mixer: THREE.AnimationMixer | null = null;
 
     const blinkTargets: Array<{ influences: number[]; index: number }> = [];
     const clock = new THREE.Clock();
     const baseY = -3;
+    const baseZ = 0;
 
     const getSize = () => ({
       width: mount.clientWidth || 320,
@@ -116,6 +165,7 @@ export default function LuukPortrait({
 
     mount.appendChild(renderer.domElement);
 
+    // Background (keeping your exact same background)
     const bgMaterial = new THREE.ShaderMaterial({
       uniforms: {
         uColorTop: { value: new THREE.Color("#cadcf2") },
@@ -170,6 +220,7 @@ export default function LuukPortrait({
     bgPlane.position.set(0, isMobile ? 15.6 : 16, -8);
     scene.add(bgPlane);
 
+    // Lights (keeping your exact same lights)
     const ambient = new THREE.AmbientLight(0xf7f9ff, isMobile ? 0.7 : 0.62);
     scene.add(ambient);
 
@@ -267,6 +318,87 @@ export default function LuukPortrait({
 
     applyMoodRef.current = applyMood;
 
+    // Function to apply a natural resting pose to the arms
+    const applyRestingPose = (root: THREE.Object3D) => {
+      // Find all arm bones
+      root.traverse((obj: THREE.Object3D) => {
+        const name = obj.name.toLowerCase();
+        
+        // Left arm
+        if (name.includes("左肩") || (name.includes("肩") && name.includes("左")) || name.includes("l_shoulder")) {
+          armBones.current.left.upper = obj;
+        }
+        if (name.includes("左腕") || name.includes("左ひじ") || (name.includes("腕") && name.includes("左")) || name.includes("l_arm") || name.includes("l_elbow")) {
+          armBones.current.left.lower = obj;
+        }
+        if (name.includes("左手") || (name.includes("手") && name.includes("左")) || name.includes("l_hand")) {
+          armBones.current.left.hand = obj;
+        }
+        
+        // Right arm
+        if (name.includes("右肩") || (name.includes("肩") && name.includes("右")) || name.includes("r_shoulder")) {
+          armBones.current.right.upper = obj;
+        }
+        if (name.includes("右腕") || name.includes("右ひじ") || (name.includes("腕") && name.includes("右")) || name.includes("r_arm") || name.includes("r_elbow")) {
+          armBones.current.right.lower = obj;
+        }
+        if (name.includes("右手") || (name.includes("手") && name.includes("右")) || name.includes("r_hand")) {
+          armBones.current.right.hand = obj;
+        }
+        
+        // Head
+        if (name.includes("頭") || name.includes("head")) {
+          headBoneRef.current = obj;
+        }
+        
+        // Shoulders for posture
+        if (name.includes("肩") || name.includes("shoulder")) {
+          if (name.includes("左") || name.includes("l_")) {
+            shoulderRefs.current.left.bone = obj;
+            shoulderRefs.current.left.baseY = obj.position.y;
+          } else if (name.includes("右") || name.includes("r_")) {
+            shoulderRefs.current.right.bone = obj;
+            shoulderRefs.current.right.baseY = obj.position.y;
+          }
+        }
+        
+        // Chest for breathing
+        if (name.includes("胸") || name.includes("chest")) {
+          chestBones.current.push(obj);
+        }
+        
+        // Hair for movement
+        if (name.includes("髪") || name.includes("hair")) {
+          hairBones.current.push(obj);
+        }
+      });
+
+      // Apply natural arm positions (slightly bent, relaxed)
+      if (armBones.current.left.upper) {
+        armBones.current.left.upper.rotation.z = -0.1; // Slight forward
+        armBones.current.left.upper.rotation.y = 0.15; // Slightly outward
+      }
+      if (armBones.current.left.lower) {
+        armBones.current.left.lower.rotation.x = 0.3; // Bent at elbow
+      }
+      if (armBones.current.left.hand) {
+        armBones.current.left.hand.rotation.x = 0.1;
+        armBones.current.left.hand.rotation.y = -0.1;
+      }
+      
+      if (armBones.current.right.upper) {
+        armBones.current.right.upper.rotation.z = 0.1;
+        armBones.current.right.upper.rotation.y = -0.15;
+      }
+      if (armBones.current.right.lower) {
+        armBones.current.right.lower.rotation.x = 0.3;
+      }
+      if (armBones.current.right.hand) {
+        armBones.current.right.hand.rotation.x = 0.1;
+        armBones.current.right.hand.rotation.y = 0.1;
+      }
+    };
+
     loader.load(
       modelPath,
       (loadedModel: THREE.Object3D) => {
@@ -275,18 +407,10 @@ export default function LuukPortrait({
         model = loadedModel;
         modelRef.current = model;
 
-        model.traverse((obj: THREE.Object3D) => {
-          const mesh = obj as THREE.Mesh;
-          const dict = (mesh as any).morphTargetDictionary as
-            | Record<string, number>
-            | undefined;
+        // Apply resting pose immediately after load
+        applyRestingPose(model);
 
-          if (dict) {
-            console.log("[Luuk morphs]", mesh.name || "(unnamed)", Object.keys(dict));
-          }
-        });
-
-        model.position.set(0, baseY, 0);
+        model.position.set(0, baseY, baseZ);
         model.rotation.y = 0.06;
         model.scale.setScalar(1);
 
@@ -371,7 +495,7 @@ export default function LuukPortrait({
       bgMaterial.uniforms.uGlowStrength.value = mobileNow ? 1.0 : 0.9;
 
       if (model) {
-        model.position.set(0, baseY, 0);
+        model.position.set(0, baseY, baseZ);
       }
     };
 
@@ -382,13 +506,110 @@ export default function LuukPortrait({
 
       if (model) {
         const t = clock.getElapsedTime();
+        const now = performance.now() / 1000;
+        
+        // Gesture system
+        if (gestureQueue.current.length > 0) {
+          const currentGesture = gestureQueue.current[0];
+          const progress = (now - currentGesture.startTime) / currentGesture.duration;
+          
+          if (progress >= 1.0) {
+            gestureQueue.current.shift();
+          } else {
+            switch(currentGesture.type) {
+              case "nod":
+                if (headBoneRef.current) {
+                  headBoneRef.current.rotation.x = Math.sin(progress * Math.PI * 2) * 0.15;
+                }
+                break;
+              case "shake":
+                if (headBoneRef.current) {
+                  headBoneRef.current.rotation.y = Math.sin(progress * Math.PI * 4) * 0.1;
+                }
+                break;
+            }
+          }
+        }
+        
+        // Blend moods smoothly
+        if (currentMoodRef.current !== targetMoodRef.current) {
+          blendFactorRef.current = Math.min(1.0, blendFactorRef.current + 0.02);
+          
+          if (blendFactorRef.current >= 1.0) {
+            currentMoodRef.current = targetMoodRef.current;
+          } else {
+            const fromMorphs = MOOD_MORPHS[currentMoodRef.current];
+            const toMorphs = MOOD_MORPHS[targetMoodRef.current];
+            
+            model.traverse((obj: THREE.Object3D) => {
+              const mesh = obj as THREE.Mesh;
+              if (!(mesh as any).morphTargetInfluences) return;
+              
+              for (let i = 0; i < fromMorphs.length; i++) {
+                const from = fromMorphs[i];
+                const to = toMorphs[i] || from;
+                const blendedValue = from.value * (1 - blendFactorRef.current) + to.value * blendFactorRef.current;
+                setMorph(mesh, from.names, blendedValue);
+              }
+            });
+          }
+        }
 
-        model.rotation.y = 0.06 + Math.sin(t * 0.5) * 0.018;
+        // Idle animations
+        model.rotation.y = 0.06 + Math.sin(t * 0.4) * 0.012;
+        model.rotation.x = Math.sin(t * 0.3) * 0.008;
+        
         model.position.y = baseY + Math.sin(t * 1.15) * 0.03;
-
-        const blinkWave = Math.sin(t * 0.9);
+        
+        // Breathing - subtle chest movement
+        chestBones.current.forEach(bone => {
+          bone.scale.y = 1 + Math.sin(t * 2.5) * 0.004;
+        });
+        
+        // Head movement
+        if (headBoneRef.current) {
+          headBoneRef.current.rotation.x += Math.sin(t * 0.3) * 0.005;
+          headBoneRef.current.rotation.y += Math.sin(t * 0.5) * 0.008;
+          headBoneRef.current.rotation.z += Math.sin(t * 0.4) * 0.003;
+        }
+        
+        // Shoulder posture
+        const updateShoulder = (shoulder: typeof shoulderRefs.current.left) => {
+          if (!shoulder.bone) return;
+          
+          switch(targetMoodRef.current) {
+            case "concerned":
+            case "annoyed":
+              shoulder.currentY = shoulder.baseY - 0.2;
+              break;
+            default:
+              shoulder.currentY = shoulder.baseY;
+          }
+          
+          shoulder.bone.position.y += (shoulder.currentY - shoulder.bone.position.y) * 0.1;
+        };
+        
+        updateShoulder(shoulderRefs.current.left);
+        updateShoulder(shoulderRefs.current.right);
+        
+        // Subtle arm sway
+        if (armBones.current.left.lower) {
+          armBones.current.left.lower.rotation.x = 0.3 + Math.sin(t * 0.8) * 0.02;
+        }
+        if (armBones.current.right.lower) {
+          armBones.current.right.lower.rotation.x = 0.3 + Math.cos(t * 0.8) * 0.02;
+        }
+        
+        // Hair movement
+        hairBones.current.forEach(bone => {
+          bone.rotation.x += Math.sin(t * 2 + bone.position.x) * 0.002;
+          bone.rotation.z += Math.cos(t * 1.8 + bone.position.y) * 0.002;
+        });
+        
+        // Blinking
+        const blinkWave = Math.sin(t * 0.9 * blinkSpeedRef.current);
         const blink = blinkWave > 0.985 ? 1 : 0;
-
+        
         for (const target of blinkTargets) {
           target.influences[target.index] = blink;
         }

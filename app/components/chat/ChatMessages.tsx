@@ -1,275 +1,170 @@
 "use client";
 
-import Avatar from "@/app/components/chat/Avatar";
-import StickerImg from "@/app/components/chat/StickerImg";
-import LTInviteBubble from "@/app/components/chat/LTInviteBubble";
-import type { Message } from "@/app/lib/chat/types";
 import type { RefObject } from "react";
 
-type CharacterInfo = {
-  name: string;
-  color: string;
-  avatar: string;
+type LTInvite = {
+  status?: "pending" | "accepted" | "declined";
+  query?: string;
 };
 
-type PlayerInfo = {
-  name: string;
-  avatar: string;
+type ChatMsg = {
+  role?: string;
+  content?: string;
+  gifUrl?: string | null;
+  stickerName?: string | null;
+  stickerUrl?: string | null;
+  imageUrl?: string | null;
+  listenTogether?: LTInvite | null;
+};
+
+type ActiveChar = {
+  name?: string;
+  avatar?: string;
+  color?: string;
+};
+
+type Player = {
+  name?: string;
+  avatar?: string;
 };
 
 type ChatMessagesProps = {
-  activeChar: CharacterInfo;
-  activeMsgs: Message[];
-  player: PlayerInfo;
-  loading: boolean;
-  typingForActive: boolean;
-  messagesEndRef: RefObject<HTMLDivElement | null>;
-  onAcceptLTInvite: (msgIndex: number) => void;
-  onDeclineLTInvite: (msgIndex: number) => void;
+  activeChar: ActiveChar;
+  activeMsgs?: ChatMsg[];
+  player?: Player;
+  loading?: boolean;
+  typingForActive?: boolean;
+  messagesEndRef?: RefObject<HTMLDivElement | null>;
+  onAcceptLTInvite?: (msgIndex: number) => void;
+  onDeclineLTInvite?: (msgIndex: number) => void;
 };
+
+function getStickerSrc(msg: ChatMsg) {
+  if (msg.stickerUrl) return msg.stickerUrl;
+  if (msg.stickerName) return `/stickers/${msg.stickerName}.png`;
+  return null;
+}
 
 export default function ChatMessages({
   activeChar,
-  activeMsgs,
+  activeMsgs = [],
   player,
-  loading,
-  typingForActive,
+  loading = false,
+  typingForActive = false,
   messagesEndRef,
   onAcceptLTInvite,
   onDeclineLTInvite,
 }: ChatMessagesProps) {
+  const safeMsgs = Array.isArray(activeMsgs) ? activeMsgs : [];
+
   return (
-    <div
-      style={{
-        flex: 1,
-        overflowY: "auto",
-        padding: "14px 16px",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
-        <span
-          style={{
-            background: "rgba(0,0,0,0.06)",
-            color: "#888",
-            fontSize: 11,
-            padding: "3px 14px",
-            borderRadius: 20,
-          }}
-        >
-          ▲ You are now friends with {activeChar.name}
-        </span>
-      </div>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-3">
+        <div className="flex min-h-full flex-col gap-3">
+          {safeMsgs.map((msg, index) => {
+            const role = msg.role ?? "assistant";
+            const isUser = role === "user";
+            const stickerSrc = getStickerSrc(msg);
 
-      {activeMsgs.map((m, i) => {
-        if (m.role === "system") {
-          return (
-            <div key={i} style={{ textAlign: "center", padding: "4px 16px" }}>
-              <span style={{ fontSize: 11, color: "#999", fontStyle: "italic" }}>
-                {m.content}
-              </span>
-            </div>
-          );
-        }
-
-        if (m.isLTInvite) {
-          return (
-            <LTInviteBubble
-              key={i}
-              msg={m}
-              charName={activeChar.name}
-              charColor={activeChar.color}
-              charAvatar={activeChar.avatar}
-              onAccept={() => onAcceptLTInvite(i)}
-              onDecline={() => onDeclineLTInvite(i)}
-            />
-          );
-        }
-
-        const isUser = m.role === "user";
-        const name = isUser ? player.name : activeChar.name;
-        const avatar = isUser ? player.avatar : activeChar.avatar;
-        const avatarColor = isUser ? "#5060b0" : activeChar.color;
-        const prevMsg = activeMsgs[i - 1];
-        const nextMsg = activeMsgs[i + 1];
-        const showLabel = !prevMsg || prevMsg.role !== m.role;
-        const isLastInGroup = !nextMsg || nextMsg.role !== m.role;
-
-        return (
-          <div key={i} style={{ marginBottom: 6 }}>
-            {showLabel && (
-              <p
-                style={{
-                  fontSize: 11,
-                  color: "#888",
-                  margin: isUser ? "8px 40px 3px 0" : "8px 0 3px 44px",
-                  textAlign: isUser ? "right" : "left",
-                }}
-              >
-                {name}
-              </p>
-            )}
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "flex-end",
-                gap: 8,
-                flexDirection: isUser ? "row-reverse" : "row",
-              }}
-            >
-              {isLastInGroup ? (
-                <div
-                  style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: "50%",
-                    overflow: "hidden",
-                    flexShrink: 0,
-                  }}
-                >
-                  <Avatar
-                    src={avatar}
-                    name={name}
-                    size={30}
-                    color={avatarColor}
-                  />
-                </div>
-              ) : (
-                <div style={{ width: 30, flexShrink: 0 }} />
-              )}
-
+            return (
               <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 2,
-                  alignItems: isUser ? "flex-end" : "flex-start",
-                  maxWidth: "68%",
-                }}
+                key={`${role}-${index}`}
+                className={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}
               >
-                {m.gifUrl && (
-                  <div style={{ borderRadius: 12, overflow: "hidden", maxWidth: 220 }}>
-                    {m.gifUrl.includes(".mp4") ? (
-                      <video
-                        src={m.gifUrl}
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          maxHeight: 160,
-                          objectFit: "cover",
-                        }}
-                      />
-                    ) : (
-                      <img
-                        src={m.gifUrl}
-                        alt="gif"
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          maxHeight: 160,
-                          objectFit: "cover",
-                        }}
-                      />
-                    )}
-                  </div>
-                )}
+                <div
+                  className={[
+                    "max-w-[82%] rounded-2xl px-3 py-2 shadow-sm",
+                    isUser
+                      ? "bg-[#6d5dfc] text-white"
+                      : "border border-black/5 bg-white/90 text-[#1d1f2a]",
+                  ].join(" ")}
+                >
+                  {(msg.content ?? "").trim() !== "" && (
+                    <div className="whitespace-pre-wrap break-words text-[13px] leading-relaxed">
+                      {msg.content}
+                    </div>
+                  )}
 
-                {m.stickerName && <StickerImg name={m.stickerName} />}
+                  {msg.imageUrl && (
+                    <img
+                      src={msg.imageUrl}
+                      alt="attachment"
+                      className="mt-2 max-h-[280px] max-w-[220px] rounded-xl object-contain"
+                    />
+                  )}
 
-                {(m.content || m.imageUrl) && (
-                  <div
-                    style={{
-                      padding: m.imageUrl && !m.content ? "4px" : "10px 16px",
-                      fontSize: 13,
-                      lineHeight: 1.55,
-                      background: isUser ? "#1e2028" : "#ffffff",
-                      color: isUser ? "#d8daee" : "#1e2030",
-                      borderRadius: 12,
-                      boxShadow: isUser ? "none" : "0 1px 3px rgba(0,0,0,0.08)",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {m.imageUrl && (
-                      <img
-                        src={m.imageUrl}
-                        alt="attachment"
-                        style={{
-                          display: "block",
-                          maxWidth: 200,
-                          maxHeight: 160,
-                          borderRadius: 6,
-                          marginBottom: m.content ? 6 : 0,
-                          objectFit: "cover",
-                        }}
-                      />
-                    )}
-                    {m.content}
-                  </div>
-                )}
+                  {msg.gifUrl && (
+                    <img
+                      src={msg.gifUrl}
+                      alt="gif"
+                      className="mt-2 max-h-[220px] max-w-[220px] rounded-xl object-contain"
+                    />
+                  )}
+
+                  {stickerSrc && (
+                    <img
+                      src={stickerSrc}
+                      alt={msg.stickerName ?? "sticker"}
+                      className="mt-2 max-h-[160px] max-w-[160px] rounded-xl object-contain"
+                    />
+                  )}
+
+                  {msg.listenTogether && (
+                    <div className="mt-2 rounded-xl bg-black/5 px-3 py-2 text-[12px]">
+                      <div className="font-medium">Listen Together invite</div>
+
+                      {msg.listenTogether.query && (
+                        <div className="mt-1 opacity-80">
+                          {msg.listenTogether.query}
+                        </div>
+                      )}
+
+                      {msg.listenTogether.status === "pending" && (
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onAcceptLTInvite?.(index)}
+                            className="rounded-lg bg-[#6d5dfc] px-3 py-1.5 text-white"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeclineLTInvite?.(index)}
+                            className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-[#1d1f2a]"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      )}
+
+                      {msg.listenTogether.status === "accepted" && (
+                        <div className="mt-2 text-emerald-600">Accepted</div>
+                      )}
+
+                      {msg.listenTogether.status === "declined" && (
+                        <div className="mt-2 text-rose-600">Declined</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {(loading || typingForActive) && (
+            <div className="flex w-full justify-start">
+              <div className="max-w-[82%] rounded-2xl border border-black/5 bg-white/90 px-3 py-2 text-[#1d1f2a] shadow-sm">
+                <div className="text-[13px] opacity-70">
+                  {activeChar?.name ?? "Typing"} is typing...
+                </div>
               </div>
             </div>
-          </div>
-        );
-      })}
+          )}
 
-      {loading && typingForActive && (
-        <div style={{ marginBottom: 6 }}>
-          <p style={{ fontSize: 11, color: "#888", margin: "8px 0 3px 44px" }}>
-            {activeChar.name}
-          </p>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
-            <div
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: "50%",
-                overflow: "hidden",
-                flexShrink: 0,
-              }}
-            >
-              <Avatar
-                src={activeChar.avatar}
-                name={activeChar.name}
-                size={30}
-                color={activeChar.color}
-              />
-            </div>
-            <div
-              style={{
-                padding: "10px 16px",
-                background: "#ffffff",
-                borderRadius: 12,
-                boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-                display: "flex",
-                gap: 4,
-                alignItems: "center",
-              }}
-            >
-              {[0, 1, 2].map((j) => (
-                <div
-                  key={j}
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: "50%",
-                    background: "#aaa",
-                    animation: "bounce 1.2s infinite",
-                    animationDelay: `${j * 0.18}s`,
-                  }}
-                />
-              ))}
-            </div>
-          </div>
+          <div ref={messagesEndRef} />
         </div>
-      )}
-
-      <div ref={messagesEndRef} />
+      </div>
     </div>
   );
 }

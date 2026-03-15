@@ -151,6 +151,14 @@ type VisionMessage = {
 
 type ChatMessage = TextMessage | VisionMessage;
 
+type PortraitMood =
+  | "neutral"
+  | "focused"
+  | "curious"
+  | "concerned"
+  | "annoyed"
+  | "calm";
+
 /* ───────────────── MODEL ORDER ───────────────── */
 
 const OPENROUTER_FALLBACKS = [
@@ -246,6 +254,67 @@ async function callOpenAIVision(
   return response.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
+/* ───────────────── HELPERS ───────────────── */
+
+function normalizeMood(value: string | null | undefined): PortraitMood | null {
+  if (!value) return null;
+  const v = value.trim().toLowerCase();
+
+  if (
+    v === "neutral" ||
+    v === "focused" ||
+    v === "curious" ||
+    v === "concerned" ||
+    v === "annoyed" ||
+    v === "calm"
+  ) {
+    return v;
+  }
+
+  return null;
+}
+
+function deriveMoodFromTextAndAnnoyance(
+  text: string,
+  annoyance: number,
+  fallback: PortraitMood = "neutral"
+): PortraitMood {
+  const lower = text.toLowerCase();
+
+  if (
+    /grating|repeating yourself|pointless|noise|threshold|stop listening|redundant|persistent in your pointlessness|annoyed|irritating|irritation/i.test(
+      lower
+    )
+  ) {
+    return "annoyed";
+  }
+
+  if (
+    /concern|worried|careful|be careful|trouble|unwise|danger|problem/i.test(
+      lower
+    )
+  ) {
+    return "concerned";
+  }
+
+  if (/curious|interesting|hmm|really\?|is that so/i.test(lower)) {
+    return "curious";
+  }
+
+  if (/focus|pay attention|listen closely|precisely/i.test(lower)) {
+    return "focused";
+  }
+
+  if (/calm|rest|gentle|softly|peaceful/i.test(lower)) {
+    return "calm";
+  }
+
+  if (annoyance >= 18) return "annoyed";
+  if (annoyance >= 10) return "concerned";
+
+  return fallback;
+}
+
 /* ───────────────── RESPONSE PARSER ───────────────── */
 
 type ParsedMessage = {
@@ -253,6 +322,8 @@ type ParsedMessage = {
   gifQuery: string | null;
   stickerName: string | null;
   annoyanceDelta: number;
+  mood: PortraitMood | null;
+  blocked: boolean | null;
   listenTogether?: {
     query: string;
   } | null;
@@ -267,27 +338,41 @@ function parseAIResponse(raw: string): ParsedMessage[] {
     let gifQuery: string | null = null;
     let stickerName: string | null = null;
     let annoyanceDelta = 0;
+    let mood: PortraitMood | null = null;
+    let blocked: boolean | null = null;
     let listenTogether: { query: string } | null = null;
 
-    const annMatch = text.match(/\[ANN:([+-]?\d+)\]/i);
+    const annMatch = text.match(/\[ANN\s*:\s*([+-]?\d+)\s*\]/i);
     if (annMatch) {
       annoyanceDelta = parseInt(annMatch[1], 10) || 0;
       text = text.replace(annMatch[0], "");
     }
 
-    const gifMatch = text.match(/\[GIF:([^\]]+)\]/i);
+    const moodMatch = text.match(/\[MOOD\s*:\s*([a-zA-Z]+)\s*\]/i);
+    if (moodMatch) {
+      mood = normalizeMood(moodMatch[1]);
+      text = text.replace(moodMatch[0], "");
+    }
+
+    const blockedMatch = text.match(/\[BLOCKED\s*:\s*(true|false)\s*\]/i);
+    if (blockedMatch) {
+      blocked = blockedMatch[1].toLowerCase() === "true";
+      text = text.replace(blockedMatch[0], "");
+    }
+
+    const gifMatch = text.match(/\[GIF\s*:\s*([^\]]+)\]/i);
     if (gifMatch) {
       gifQuery = gifMatch[1].trim();
       text = text.replace(gifMatch[0], "");
     }
 
-    const stickerMatch = text.match(/\[STICKER:([^\]]+)\]/i);
+    const stickerMatch = text.match(/\[STICKER\s*:\s*([^\]]+)\]/i);
     if (stickerMatch) {
       stickerName = stickerMatch[1].trim();
       text = text.replace(stickerMatch[0], "");
     }
 
-    const ltMatch = text.match(/\[LISTEN_TOGETHER:([^\]]+)\]/i);
+    const ltMatch = text.match(/\[LISTEN_TOGETHER\s*:\s*([^\]]+)\]/i);
     if (ltMatch) {
       const query = ltMatch[1].trim();
       if (query) {
@@ -301,6 +386,8 @@ function parseAIResponse(raw: string): ParsedMessage[] {
       gifQuery,
       stickerName,
       annoyanceDelta,
+      mood,
+      blocked,
       listenTogether,
     };
   });
@@ -369,6 +456,17 @@ export async function POST(req: NextRequest) {
     );
 
     systemPrompt += `
+
+STRICT INTERNAL OUTPUT RULES:
+- Every reply MUST include exactly one [ANN:+N] tag.
+- Every reply MUST include exactly one [MOOD:neutral|focused|curious|concerned|annoyed|calm] tag.
+- Only include [BLOCKED:true] if the character is fully done with the user. Otherwise include [BLOCKED:false].
+- Put these metadata tags at the very end of the final message.
+- Never mention the metadata tags in normal visible conversation.
+- Valid examples:
+  [ANN:+6][MOOD:annoyed][BLOCKED:false]
+  [ANN:+0][MOOD:neutral][BLOCKED:false]
+  [ANN:+12][MOOD:annoyed][BLOCKED:true]
 
 INTERNAL LISTEN TOGETHER CONTROL:
 - [LISTEN_TOGETHER:search query] is an internal control format.
@@ -494,16 +592,48 @@ Comment on what is happening in the scene.`;
       });
     }
 
+    console.log("[chat] RAW MODEL OUTPUT:", rawContent);
+
     const parsed = parseAIResponse(rawContent);
     const totalAnnoyanceDelta = parsed.reduce(
       (sum, p) => sum + p.annoyanceDelta,
       0
     );
 
+    const explicitMood =
+      [...parsed].reverse().find((p) => p.mood)?.mood ?? null;
+
+    const explicitBlocked =
+      [...parsed].reverse().find((p) => p.blocked !== null)?.blocked ?? null;
+
     if (session) {
       const char = CHARACTERS[character];
       if (char) {
         session = processMessage(session, char, userMessage, totalAnnoyanceDelta);
+
+        const derivedMood = deriveMoodFromTextAndAnnoyance(
+          rawContent,
+          session.annoyance,
+          (session.mood as PortraitMood | undefined) ??
+            (char.defaultMood as PortraitMood | undefined) ??
+            "neutral"
+        );
+
+        session.mood =
+          explicitMood ??
+          derivedMood ??
+          (char.defaultMood as PortraitMood | undefined) ??
+          "neutral";
+
+        if (typeof explicitBlocked === "boolean") {
+          session.blocked = explicitBlocked;
+        } else if (
+          typeof char.annoyanceThreshold === "number" &&
+          session.annoyance >= char.annoyanceThreshold
+        ) {
+          session.blocked = true;
+        }
+
         saveSession(userId, character, session);
       }
     }
@@ -531,7 +661,11 @@ Comment on what is happening in the scene.`;
       listenTogether: messagesOut[0]?.listenTogether ?? null,
       blocked: session?.blocked ?? false,
       annoyanceDelta: totalAnnoyanceDelta,
-      mood: session?.mood ?? CHARACTERS[character]?.defaultMood ?? "neutral",
+      mood:
+        (session?.mood as PortraitMood | undefined) ??
+        explicitMood ??
+        CHARACTERS[character]?.defaultMood ??
+        "neutral",
       session: session
         ? {
             mood: session.mood,

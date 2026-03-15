@@ -57,7 +57,20 @@ function tierIndex(tier: AffinityTier): number {
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
+export function mapMoodToPortraitMood(mood: Mood): Mood {
+  const map: Record<string, Mood> = {
+    cold: "neutral",
+    melancholic: "concerned",
+    content: "calm",
+    happy: "calm",
+    excited: "curious",
+    angry: "annoyed",
+    flustered: "curious",
+    playful: "curious",
+  };
 
+  return map[mood] ?? mood;
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // EXTRA ANNOYANCE RULES
 // deterministic backup so rude triggers actually raise annoyance even when
@@ -133,7 +146,7 @@ export function processMessage(
 
   return {
     ...session,
-    mood,
+    mood: mapMoodToPortraitMood(mood),
     affinity,
     annoyance,
     blocked,

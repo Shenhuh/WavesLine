@@ -15,29 +15,34 @@ export const phrolova: CharacterDef = {
   annoyanceBlockMessage:
     "If your thoughts are this restless, perhaps silence would serve you better.",
 
-  defaultMood: "cold",
+  defaultMood: "neutral",
 
-  moodRange: [
-    "cold",
-    "neutral",
-    "focused",
-    "melancholic",
-    "annoyed",
-    "content"
-  ],
+ moodRange: [
+  "neutral",
+  "focused",
+  "curious",
+  "concerned",
+  "annoyed",
+  "calm"
+],
 
   moodShifts: [
-    { trigger: "fractsidus", to: "focused", affinityDelta: 1 },
-    { trigger: "overseer", to: "focused", affinityDelta: 1 },
-    { trigger: "fear", to: "melancholic", affinityDelta: 1 },
-    { trigger: "silence", to: "content", affinityDelta: 2 },
-    { trigger: "mind", to: "focused", affinityDelta: 1 },
-    { trigger: "thought", to: "focused", affinityDelta: 1 },
+  { trigger: "fractsidus", to: "focused", affinityDelta: 1 },
+  { trigger: "overseer", to: "focused", affinityDelta: 1 },
+  { trigger: "mind", to: "focused", affinityDelta: 1 },
+  { trigger: "thought", to: "focused", affinityDelta: 1 },
 
-    { trigger: "shut up", to: "annoyed", affinityDelta: -3 },
-    { trigger: "boring", to: "annoyed", affinityDelta: -3 },
-    { trigger: "idiot", to: "annoyed", affinityDelta: -4 },
-  ],
+  { trigger: "fear", to: "concerned", affinityDelta: 1 },
+  { trigger: "silence", to: "calm", affinityDelta: 2 },
+
+  { trigger: "shut up", to: "annoyed", affinityDelta: -3 },
+  { trigger: "boring", to: "annoyed", affinityDelta: -3 },
+  { trigger: "idiot", to: "annoyed", affinityDelta: -4 },
+  { trigger: "thoughts", to: "focused", affinityDelta: 1 },
+{ trigger: "quiet", to: "calm", affinityDelta: 1 },
+{ trigger: "silence", to: "calm", affinityDelta: 2 },
+{ trigger: "fear", to: "concerned", affinityDelta: 1 },
+],
 
   defaultAffinity: 0,
 
@@ -56,32 +61,32 @@ export const phrolova: CharacterDef = {
   ],
 
   conversationStarters: [
-    {
-      moods: ["cold"],
-      minTier: "stranger",
-      line: "Your mind is loud. Do you hear it?",
-    },
-    {
-      moods: ["focused"],
-      minTier: "stranger",
-      line: "Settle your thoughts. Only then can you hear what truly matters.",
-    },
-    {
-      moods: ["melancholic"],
-      minTier: "acquaintance",
-      line: "Fear is often nothing more than noise in the mind.",
-    },
-    {
-      moods: ["content"],
-      minTier: "friend",
-      line: "You listen more carefully than most.",
-    },
-    {
-      moods: ["focused", "melancholic"],
-      minTier: "close",
-      line: "Tell me. When the world grows quiet… what remains in your thoughts?",
-    },
-  ],
+  {
+    moods: ["neutral"],
+    minTier: "stranger",
+    line: "Your mind is loud. Do you hear it?",
+  },
+  {
+    moods: ["focused"],
+    minTier: "stranger",
+    line: "Settle your thoughts. Only then can you hear what truly matters.",
+  },
+  {
+    moods: ["concerned"],
+    minTier: "acquaintance",
+    line: "Fear is often nothing more than noise in the mind.",
+  },
+  {
+    moods: ["calm"],
+    minTier: "friend",
+    line: "You listen more carefully than most.",
+  },
+  {
+    moods: ["focused", "concerned"],
+    minTier: "close",
+    line: "Tell me. When the world grows quiet… what remains in your thoughts?",
+  },
+],
 
   tierDirectives: {
     stranger:

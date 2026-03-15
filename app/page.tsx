@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import ListenTogether, { type SessionEvent } from "./components/ListenTogether";
-import LuukPortrait from "@/app/components/LuukPortrait";
+
 import Avatar from "@/app/components/chat/Avatar";
 import WavesLineLogo from "@/app/components/chat/WavesLineLogo";
 import AddContactModal from "@/app/components/chat/AddContactModal";
@@ -18,7 +18,12 @@ import ChatSidebar from "@/app/components/chat/ChatSidebar";
 import ChatHeader from "@/app/components/chat/ChatHeader";
 import ChatMessages from "@/app/components/chat/ChatMessages";
 import ChatInputBar from "@/app/components/chat/ChatInputBar";
-import type { LuukMood } from "@/app/lib/luukMood";
+import MMDPortrait from "@/app/components/MMDPortrait";
+import {
+  PORTRAIT_CONFIGS,
+  type PortraitCharacterKey,
+  type PortraitMood,
+} from "@/app/lib/mmd/portraitConfig";
 
 export default function Home() {
   const [player, setPlayer] = useState<typeof ALL_CHARACTERS[0] | null>(null);
@@ -69,19 +74,19 @@ export default function Home() {
   activeChatRef.current = activeChat;
   const [isMobile, setIsMobile] = useState(false);
   const [mobileView, setMobileView] = useState<"sidebar" | "chat">("sidebar");
-  const [luukMood, setLuukMood] = useState<LuukMood>("neutral");
+  const [portraitMood, setPortraitMood] = useState<PortraitMood>("neutral");
   const ltSessionRef = useRef<Record<string, boolean>>({});
 
-  function isLuukMood(value: unknown): value is LuukMood {
-    return (
-      value === "neutral" ||
-      value === "focused" ||
-      value === "curious" ||
-      value === "concerned" ||
-      value === "annoyed" ||
-      value === "calm"
-    );
-  }
+  function isPortraitMood(value: unknown): value is PortraitMood {
+  return (
+    value === "neutral" ||
+    value === "focused" ||
+    value === "curious" ||
+    value === "concerned" ||
+    value === "annoyed" ||
+    value === "calm"
+  );
+}
 
   function syncChatStateFromReply(chatKey: string, reply: any) {
     if (typeof reply.blocked === "boolean") {
@@ -96,9 +101,9 @@ export default function Home() {
       }));
     }
 
-    if (chatKey === "luuk" && isLuukMood(reply.mood)) {
-      setLuukMood(reply.mood);
-    }
+   if (isPortraitMood(reply.mood) && chatKey === activeChatRef.current) {
+  setPortraitMood(reply.mood);
+}
   }
 
   useEffect(() => {
@@ -531,92 +536,65 @@ console.log("reply.session =", reply.session);
   }
 
   async function requestUnblock() {
-    if (!activeChat || unblockLoading) return;
-    const chatKey = activeChat;
-    if (!player) return;
+  if (!activeChat || unblockLoading || !player) return;
 
-    setUnblockLoading(true);
-    const accepted = Math.random() < 0.2;
+  const chatKey = activeChat;
+  setUnblockLoading(true);
 
+  const accepted = Math.random() < 0.2;
+
+  try {
     if (!accepted) {
       await new Promise((r) => setTimeout(r, 800));
-      setAllMessages((prev) => ({
-        ...prev,
-        [chatKey]: [
-          ...(prev[chatKey] ?? []),
-          {
-            role: "system",
-            content: "Your request was ignored.",
-            time: getTime(),
-          },
-        ],
-      }));
+
+      // no chat bubble added here
+      // optional: set a small UI status somewhere else if you want
+      // setUnblockStatus("Your request was ignored.");
+
       setUnblockLoading(false);
       return;
     }
 
-    const messages = allMessages[chatKey] ?? [];
-    const context = [
-      ...messages,
-      { role: "user" as const, content: "[sent an unblock request]" },
-    ];
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [],
+        character: chatKey,
+        playerName: player.name,
+        playerKey: player.key,
+        userId: player.key,
+        userMessage: "",
+        unblockRequest: true,
+        unblockAccepted: true,
+      }),
+    });
 
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: context.map(({ role, content }) => ({ role, content })),
-          character: chatKey,
-          playerName: player.name,
-          playerKey: player.key,
-          unblockRequest: true,
-          unblockAccepted: true,
-        }),
-      });
+    const reply = await res.json();
+    syncChatStateFromReply(chatKey, reply);
 
-      const reply = await res.json();
-      syncChatStateFromReply(chatKey, reply);
+    // do NOT append reply.messages to chat
+    // only update state
 
-      const replyMsgs = reply.messages ?? [{ content: reply.content }];
+    blockingRef.current[chatKey] = !!reply.blocked;
 
-      for (let i = 0; i < replyMsgs.length; i++) {
-        if (i > 0) await new Promise((r) => setTimeout(r, 600));
-        const m = replyMsgs[i];
-        setAllMessages((prev) => ({
-          ...prev,
-          [chatKey]: [
-            ...(prev[chatKey] ?? []),
-            {
-              role: "assistant",
-              content: m.content ?? "",
-              time: getTime(),
-            },
-          ],
-        }));
-      }
+    setAnnoyance((prev) => ({
+      ...prev,
+      [chatKey]: reply.session?.annoyance ?? prev[chatKey] ?? 0,
+    }));
 
-      blockingRef.current[chatKey] = !!reply.blocked;
-      setAnnoyance((prev) => ({
-        ...prev,
-        [chatKey]: reply.session?.annoyance ?? 0,
-      }));
-      setBlockedChats((prev) => ({
-        ...prev,
-        [chatKey]: !!reply.blocked,
-      }));
-    } catch {
-      setAllMessages((prev) => ({
-        ...prev,
-        [chatKey]: [
-          ...(prev[chatKey] ?? []),
-          { role: "assistant", content: "...", time: getTime() },
-        ],
-      }));
-    }
-
+    setBlockedChats((prev) => ({
+      ...prev,
+      [chatKey]: !!reply.blocked,
+    }));
+  } catch {
+    // optional silent failure
+    // or set a small UI status outside chat
+    // setUnblockStatus("Failed to send unblock request.");
+  } finally {
     setUnblockLoading(false);
   }
+}
 
   function addContact(key: string) {
     setContacts((prev) => [...prev, key]);
@@ -626,21 +604,19 @@ console.log("reply.session =", reply.session);
     setBlockedChats((prev) => ({ ...prev, [key]: false }));
     setAnnoyance((prev) => ({ ...prev, [key]: 0 }));
 
-    if (key === "luuk") {
-      setLuukMood("neutral");
-    }
-
+    setPortraitMood("neutral");
     setShowAddContact(false);
     if (isMobile) setMobileView("chat");
   }
 
   function openChat(key: string) {
-    setActiveChat(key);
-    setUnread((prev) => ({ ...prev, [key]: false }));
-    setToast((prev) => (prev?.key === key ? null : prev));
+  setActiveChat(key);
+  setUnread((prev) => ({ ...prev, [key]: false }));
+  setToast((prev) => (prev?.key === key ? null : prev));
+  setPortraitMood("neutral");
 
-    if (isMobile) setMobileView("chat");
-  }
+  if (isMobile) setMobileView("chat");
+}
 
   async function sendMessage() {
     if ((!input.trim() && !attachedImage) || loading || !player || !activeChat) {
@@ -699,7 +675,12 @@ console.log("reply.session =", reply.session);
   const activeMsgs = activeChat ? allMessages[activeChat] ?? [] : [];
   const selChar =
     ALL_CHARACTERS.find((c) => c.key === selectedKey) ?? ALL_CHARACTERS[0];
+  const hasPortrait =
+  !!activeChat && Object.prototype.hasOwnProperty.call(PORTRAIT_CONFIGS, activeChat);
 
+const activePortraitKey = hasPortrait
+  ? (activeChat as PortraitCharacterKey)
+  : null;
   if (!player) {
     return (
       <LoginScreen
@@ -922,29 +903,33 @@ console.log("reply.session =", reply.session);
                     }}
                   />
 
-                  {activeChat === "luuk" && isMobile && (
-                    <div
-                      style={{
-                        padding: "8px 10px 0 10px",
-                        flexShrink: 0,
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: "100%",
-                          height: 158,
-                          borderRadius: 16,
-                          overflow: "hidden",
-                          background:
-                            "radial-gradient(circle at 50% 42%, #d9e6f7 0%, #b6c7df 72%)",
-                          boxShadow: "0 8px 18px rgba(0,0,0,0.1)",
-                          border: "1px solid rgba(0,0,0,0.06)",
-                        }}
-                      >
-                        <LuukPortrait mood={luukMood} className="w-full h-full" />
-                      </div>
-                    </div>
-                  )}
+                  {isMobile && activePortraitKey && (
+  <div
+    style={{
+      padding: "8px 10px 0 10px",
+      flexShrink: 0,
+    }}
+  >
+    <div
+      style={{
+        width: "100%",
+        height: 158,
+        borderRadius: 16,
+        overflow: "hidden",
+        background: "#1a1c24",
+        boxShadow: "0 8px 18px rgba(0,0,0,0.18)",
+        border: "1px solid rgba(0,0,0,0.08)",
+      }}
+    >
+      <MMDPortrait
+        character={activePortraitKey}
+        mood={portraitMood}
+        className="w-full h-full"
+        debugMorphs={true}
+      />
+    </div>
+  </div>
+)}
 
                   <div
                     style={{
@@ -988,33 +973,36 @@ console.log("reply.session =", reply.session);
                       </div>
                     </div>
 
-                    {activeChat === "luuk" && !isMobile && (
-                      <aside
-                        style={{
-                          width: 180,
-                          flexShrink: 0,
-                          display: "flex",
-                          justifyContent: "flex-end",
-                        }}
-                      >
-                        <div
-                          style={{
-                            position: "sticky",
-                            top: 0,
-                            width: 180,
-                            height: 220,
-                            borderRadius: 14,
-                            overflow: "hidden",
-                            background:
-                              "linear-gradient(180deg, #d7e2f1 0%, #aebfd8 100%)",
-                            boxShadow: "0 10px 24px rgba(0,0,0,0.12)",
-                            border: "1px solid rgba(0,0,0,0.06)",
-                          }}
-                        >
-                          <LuukPortrait mood={luukMood} className="w-full h-full" />
-                        </div>
-                      </aside>
-                    )}
+                    {!isMobile && activePortraitKey && (
+  <aside
+    style={{
+      width: 180,
+      flexShrink: 0,
+      display: "flex",
+      justifyContent: "flex-end",
+    }}
+  >
+    <div
+      style={{
+        position: "sticky",
+        top: 0,
+        width: 180,
+        height: 250,
+        borderRadius: 14,
+        overflow: "hidden",
+        background: "#1a1c24",
+        boxShadow: "0 10px 24px rgba(0,0,0,0.18)",
+        border: "1px solid rgba(0,0,0,0.08)",
+      }}
+    >
+      <MMDPortrait
+        character={activePortraitKey}
+        mood={portraitMood}
+        className="w-full h-full"
+      />
+    </div>
+  </aside>
+)}
                   </div>
 
                   <ChatInputBar
